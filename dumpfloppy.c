@@ -332,6 +332,8 @@ static bool probe_track(track_t *track) {
         }
 
         // FIXME: we could get out of this loop sooner with a heuristic
+        // (if we've seen every sector ID either not at all or at least twice,
+        // then we've seen a full rotation, assuming we didn't miss any)
     }
 
     // Find the range of sectors involved.
