@@ -42,13 +42,38 @@ static int drive_selector(int head) {
 }
 
 typedef struct {
+    const char *name;
     int rate; // 0 to 3
     bool is_fm;
-} trackmode_t;
+} data_mode_t;
+
+// Following what the .IMD spec says, the rates here are the data transfer rate
+// to the drive -- FM-500k transfers half as much data as MFM-500k owing to the
+// less efficient encoding.
+const data_mode_t data_modes[] = {
+    // 5.25" DD/QD and 3.5" DD drives
+    { "MFM-250k", 2, false },
+    { "FM-250k", 2, true },
+
+    // DD media in 5.25" HD drives
+    { "MFM-300k", 1, false },
+    { "FM-300k", 1, true },
+
+    // 3.5" HD, 5.25" HD and 8" drives
+    { "MFM-500k", 0, false },
+    { "FM-500k", 0, true },
+
+    // 3.5" ED drives
+    { "MFM-1000k", 3, false },
+    // Rate 3 for FM isn't allowed.
+
+    { NULL, 0, false }
+};
 
 // Apply a mode specification to a floppy_raw_cmd -- which must contain only
 // one command.
-static void apply_mode(const trackmode_t *mode, struct floppy_raw_cmd *cmd) {
+static void apply_data_mode(const data_mode_t *mode,
+                            struct floppy_raw_cmd *cmd) {
     cmd->rate = mode->rate;
     if (mode->is_fm) {
         cmd->cmd[0] &= ~0x40;
@@ -81,7 +106,7 @@ static void fd_recalibrate(struct floppy_raw_cmd *cmd) {
 // cmd->reply[4] is logical head
 // cmd->reply[5] is logical sector
 // (128 << cmd->reply[6]) is sector size
-static bool fd_readid(int cyl, int head, const trackmode_t *mode,
+static bool fd_readid(int cyl, int head, const data_mode_t *mode,
                       struct floppy_raw_cmd *cmd) {
     memset(cmd, 0, sizeof *cmd);
 
@@ -90,7 +115,7 @@ static bool fd_readid(int cyl, int head, const trackmode_t *mode,
     cmd->cmd_count = 2;
     cmd->flags = FD_RAW_INTR | FD_RAW_NEED_SEEK;
     cmd->track = cyl;
-    apply_mode(mode, cmd);
+    apply_data_mode(mode, cmd);
 
     if (ioctl(dev_fd, FDRAWCMD, cmd) < 0) {
         die_errno("FD_READID failed");
@@ -103,30 +128,33 @@ static bool fd_readid(int cyl, int head, const trackmode_t *mode,
     return ((cmd->reply[0] >> 6) & 3) == 0;
 }
 
-static void probe_track_mode(int cyl, int head, trackmode_t *mode) {
+static void probe_track_mode(int cyl, int head) {
+    const data_mode_t *mode = NULL;
     struct floppy_raw_cmd cmd;
 
-    // Try all the possible modes until we can read a sector ID.
-    for (int is_fm = 0; is_fm < 2; is_fm++) {
-        mode->is_fm = is_fm;
-        for (int rate = 0; rate < 4; rate++) {
-            mode->rate = rate;
-            printf("probe cyl %d head %d is_fm %d rate %d\n", cyl, head, is_fm, rate);
+    printf("%02d.%d: ", cyl, head);
+    fflush(stdout);
 
-            if (fd_readid(cyl, head, mode, &cmd)) {
-                printf("  success!\n");
-                goto probe_secs;
-            }
+    // Try all the possible modes until we can read a sector ID.
+    for (int i = 0; ; i++) {
+        if (data_modes[i].name == NULL) {
+            printf("unknown data mode\n");
+            // FIXME: fail or retry
+            return;
+        }
+
+        if (fd_readid(cyl, head, &data_modes[i], &cmd)) {
+            mode = &data_modes[i];
+            printf("%s ", mode->name);
+            fflush(stdout);
+            break;
         }
     }
 
-    // FIXME: fail (or retry)
-    printf("failed to probe\n");
-    return;
-
-probe_secs:
+    // See what sectors are available.
     for (int i = 0; i < 30; i++) {
         fd_readid(cyl, head, mode, &cmd);
+        // FIXME: if this fails, exit
         printf("C %d H %d S %d size %d EOT %d\n", cmd.reply[3], cmd.reply[4], cmd.reply[5], cmd.reply[6], cmd.reply[1] & 0x80);
         // FIXME: if C == cyl, OK
         // if C == cyl / 2, ask for doublestepping
@@ -157,8 +185,7 @@ static void process_floppy(void) {
 
     for (int cyl = 0; cyl < 80; cyl++) { // FIXME: num cylinders
         // FIXME: heads
-        trackmode_t mode;
-        probe_track_mode(cyl, 0, &mode);
+        probe_track_mode(cyl, 0);
 
         // ... read track
     }
