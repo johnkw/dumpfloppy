@@ -511,6 +511,14 @@ static void process_floppy(void) {
 
     probe_disk(&disk);
 
+    FILE *image = NULL;
+    if (image_filename != NULL) {
+        image = fopen(image_filename, "wb");
+        if (image == NULL) {
+            die_errno("cannot open %s", image_filename);
+        }
+    }
+
     for (int cyl = 0; cyl < disk.num_phys_cyls; cyl += disk.cyl_step) {
         for (int head = 0; head < disk.num_phys_heads; head++) {
             track_t *track = &(disk.tracks[cyl][head]);
@@ -541,9 +549,21 @@ static void process_floppy(void) {
                 // Failed; reprobe and try again.
                 track->probed = false;
             }
+
+            // Write sectors to the image file.
+            // FIXME: storing complete tracks would simplify this
+            if (image != NULL) {
+                for (int sec = track->first_sector; sec <= track->last_sector; sec++) {
+                    fwrite(track->sectors[sec], 1, sector_bytes(track->sector_size), image);
+                }
+                fflush(image);
+            }
         }
     }
 
+    if (image != NULL) {
+        fclose(image);
+    }
     close(dev_fd);
 }
 
