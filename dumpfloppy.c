@@ -7,6 +7,10 @@
    fdutils project.
 */
 
+// FIXME: Rework data model to match the .IMD format completely
+// FIXME: Write an IMD-to-flat tool (i.e. an IMD loader and flat writer)
+//   FIXME: with choice of interleaving in output formats (.dsd, .adl, .adf)
+
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/fd.h>
@@ -659,7 +663,8 @@ static void process_floppy(void) {
 static void usage(void) {
     fprintf(stderr, "usage: dumpfloppy [-d NUM] [IMAGE-FILE]\n");
     fprintf(stderr, "  -d NUM     drive number to read from (default 0)\n");
-    // FIXME: choice of interleaving in output formats (.dsd, .adl, .adf)
+    // FIXME: -t COUNT    drive has COUNT tracks
+    // FIXME: -S SEC      ignore sectors with logical ID SEC (for RM disks)
 }
 
 int main(int argc, char **argv) {
