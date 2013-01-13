@@ -84,6 +84,7 @@ static void apply_data_mode(const data_mode_t *mode,
     }
 }
 
+#define MAX_SECS 256
 typedef struct {
     bool probed;
     int phys_cyl;
@@ -93,10 +94,10 @@ typedef struct {
     const data_mode_t *data_mode;
     int sector_size; // FDC code; decode with sector_bytes
     int first_sector;
-    int num_sectors;
+    int last_sector;
+    unsigned char *sectors[MAX_SECS];
 } track_t;
 
-#define MAX_SECS 256
 const track_t EMPTY_TRACK = {
     .probed = false,
     .phys_cyl = -1,
@@ -106,13 +107,16 @@ const track_t EMPTY_TRACK = {
     .data_mode = NULL,
     .sector_size = -1,
     .first_sector = -1,
-    .num_sectors = -1,
+    .last_sector = -1,
 };
 
 static void init_track(int phys_cyl, int phys_head, track_t *track) {
     *track = EMPTY_TRACK;
     track->phys_cyl = phys_cyl;
     track->phys_head = phys_head;
+    for (int i = 0; i < MAX_SECS; i++) {
+        track->sectors[i] = NULL;
+    }
 }
 
 static void copy_track_mode(const track_t *src, track_t *dest) {
@@ -125,7 +129,7 @@ static void copy_track_mode(const track_t *src, track_t *dest) {
     dest->data_mode = src->data_mode;
     dest->sector_size = src->sector_size;
     dest->first_sector = src->first_sector;
-    dest->num_sectors = src->num_sectors;
+    dest->last_sector = src->last_sector;
 }
 
 #define MAX_CYLS 256
@@ -191,6 +195,57 @@ static bool fd_readid(int cyl, int head, const data_mode_t *mode,
     cmd->flags = FD_RAW_INTR | FD_RAW_NEED_SEEK;
     cmd->track = cyl;
     apply_data_mode(mode, cmd);
+
+    if (ioctl(dev_fd, FDRAWCMD, cmd) < 0) {
+        die_errno("FD_READID failed");
+    }
+    if (cmd->reply_count < 7) {
+        die("FD_READID returned short reply");
+    }
+
+    // If ST0 interrupt code is 00, success.
+    return ((cmd->reply[0] >> 6) & 3) == 0;
+}
+
+// Read sector data.
+//
+// Return true if all data was read. Upon return:
+// cmd->reply[0]--[2] are ST0-ST2
+// cmd->reply[3] is logical cyl
+// cmd->reply[4] is logical head
+// cmd->reply[5] is logical sector
+// (128 << cmd->reply[6]) is sector size
+static bool fd_read(const track_t *track, int log_sector,
+                    unsigned char *buf, size_t buf_size,
+                    struct floppy_raw_cmd *cmd) {
+    memset(cmd, 0, sizeof *cmd);
+
+    // 0x80 is the MT (multiple tracks) bit.
+    cmd->cmd[0] = FD_READ & ~0x80;
+    cmd->cmd[1] = drive_selector(track->phys_head);
+    cmd->cmd[2] = track->log_cyl;
+    cmd->cmd[3] = track->log_head;
+    cmd->cmd[4] = log_sector;
+    cmd->cmd[5] = track->sector_size;
+    // End of track sector number.
+    cmd->cmd[6] = 0xFF;
+    // Intersector gap. There's a complex table of these for various formats in
+    // the M1543C datasheet; the fdutils manual says it doesn't make any
+    // difference for read. FIXME: hmm.
+    cmd->cmd[7] = 0x1B;
+    // Bytes in sector -- but only if sector size is 0, else it should be 0xFF.
+    if (track->sector_size == 0) {
+        cmd->cmd[8] = 128;
+    } else {
+        cmd->cmd[8] = 0xFF; // data length
+    }
+    cmd->cmd_count = 9;
+    cmd->flags = FD_RAW_READ | FD_RAW_INTR | FD_RAW_NEED_SEEK;
+    // FIXME: check if Linux is doing an implied seek (i.e. phys == log)
+    cmd->track = track->phys_cyl;
+    cmd->data = buf;
+    cmd->length = buf_size;
+    apply_data_mode(track->data_mode, cmd);
 
     if (ioctl(dev_fd, FDRAWCMD, cmd) < 0) {
         die_errno("FD_READID failed");
@@ -289,14 +344,69 @@ static bool probe_track(track_t *track) {
     }
 
     track->first_sector = first;
-    track->num_sectors = (last + 1) - first;
+    track->last_sector = last;
 
-    printf(" %dx%d (%d-%d)\n", track->num_sectors,
+    printf(" %dx%d (%d-%d)\n", (last + 1) - first,
                                sector_bytes(track->sector_size),
-                               track->first_sector, last);
+                               first, last);
 
     track->probed = true;
     return true;
+}
+
+// Try to read any sectors in a track that haven't already been read.
+// Returns true if everything has been read.
+static bool read_track(track_t *track) {
+    struct floppy_raw_cmd cmd;
+
+    if (!track->probed) {
+        if (!probe_track(track)) {
+            return false;
+        }
+    }
+
+    printf("Reading phys %02d.%d log %02d.%d:",
+           track->phys_cyl, track->phys_head, track->log_cyl, track->log_head);
+    fflush(stdout);
+
+    bool all_ok = true;
+    for (int sec = track->first_sector; sec <= track->last_sector; sec++) {
+        if (track->sectors[sec] != NULL) {
+            // Already got this one.
+            printf(" (%d)", sec);
+            continue;
+        }
+
+        printf(" %d", sec);
+        fflush(stdout);
+
+        // Allocate the sector.
+        const int buf_size = sector_bytes(track->sector_size);
+        track->sectors[sec] = malloc(buf_size);
+        if (track->sectors[sec] == NULL) {
+            die("malloc failed");
+        }
+
+        if (!fd_read(track, sec, track->sectors[sec], buf_size, &cmd)) {
+            // Failed -- throw it away.
+            free(track->sectors[sec]);
+            track->sectors[sec] = NULL;
+
+            printf("-");
+            all_ok = false;
+        } else {
+            printf("+");
+        }
+        fflush(stdout);
+    }
+
+    if (all_ok) {
+        printf(" OK\n");
+        return true;
+    } else {
+        printf("\n");
+        return false;
+    }
 }
 
 static void probe_disk(disk_t *disk) {
@@ -377,15 +487,23 @@ static void process_floppy(void) {
                 copy_track_mode(&(disk.tracks[cyl - 1][head]), track);
             }
 
-            if (!track->probed) {
-                if (!probe_track(track)) {
-                    printf("probe failed\n");
-                    continue;
-                }
-            }
+            const int max_tries = 10;
+            for (int try = 0; ; try++) {
+                // FIXME: seek the head around, turn the motor on/off...
 
-            // ... read track
-            // ... if read failed, probe again
+                if (try == max_tries) {
+                    // Tried too many times; give up.
+                    die("Track failed to read after retrying");
+                }
+
+                if (read_track(track)) {
+                    // Success!
+                    break;
+                }
+
+                // Failed; reprobe and try again.
+                track->probed = false;
+            }
         }
     }
 
