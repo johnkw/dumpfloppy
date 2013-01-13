@@ -85,6 +85,18 @@ static void apply_data_mode(const data_mode_t *mode,
     }
 }
 
+typedef struct {
+    unsigned char *data; // NULL if not read yet
+} sector_t;
+
+const sector_t EMPTY_SECTOR = {
+    .data = NULL,
+};
+
+static void init_sector(sector_t *sector) {
+    *sector = EMPTY_SECTOR;
+}
+
 #define MAX_SECS 256
 typedef struct {
     bool probed;
@@ -97,7 +109,7 @@ typedef struct {
     int sector_size; // derived from sector_size
     int first_sector;
     int last_sector;
-    unsigned char *sectors[MAX_SECS];
+    sector_t sectors[MAX_SECS]; // indexed by logical sector
 } track_t;
 
 const track_t EMPTY_TRACK = {
@@ -118,7 +130,7 @@ static void init_track(int phys_cyl, int phys_head, track_t *track) {
     track->phys_cyl = phys_cyl;
     track->phys_head = phys_head;
     for (int i = 0; i < MAX_SECS; i++) {
-        track->sectors[i] = NULL;
+        init_sector(&(track->sectors[i]));
     }
 }
 
@@ -130,7 +142,7 @@ typedef struct {
     int first_log_cyl; // what physical cyl 0 corresponds to
     int cyl_step; // how many physical cyls to step for each logical one
     head_mode_t head_mode;
-    track_t tracks[MAX_CYLS][MAX_HEADS];
+    track_t tracks[MAX_CYLS][MAX_HEADS]; // indexed by physical cyl/head
 } disk_t;
 
 const disk_t EMPTY_DISK = {
@@ -401,7 +413,7 @@ static bool read_track(track_t *track) {
     // Put each sector into place.
     bool all_ok = true;
     for (int sec = track->first_sector; sec <= track->last_sector; sec++) {
-        if (track->sectors[sec] != NULL) {
+        if (track->sectors[sec].data != NULL) {
             // Already got this one.
             printf(" (%d)", sec);
             continue;
@@ -411,22 +423,22 @@ static bool read_track(track_t *track) {
         fflush(stdout);
 
         // Allocate the sector.
-        track->sectors[sec] = malloc(track->sector_size);
-        if (track->sectors[sec] == NULL) {
+        track->sectors[sec].data = malloc(track->sector_size);
+        if (track->sectors[sec].data == NULL) {
             die("malloc failed");
         }
 
         if (read_track) {
             // Get it from the whole-track read.
             // FIXME: this is awfully ugly
-            memcpy(track->sectors[sec],
+            memcpy(track->sectors[sec].data,
                    track_buf + (track->sector_size * (sec - track->first_sector)),
                    track->sector_size);
             printf("=");
-        } else if (!fd_read(track, sec, track->sectors[sec], track->sector_size, &cmd)) {
+        } else if (!fd_read(track, sec, track->sectors[sec].data, track->sector_size, &cmd)) {
             // Failed -- throw it away.
-            free(track->sectors[sec]);
-            track->sectors[sec] = NULL;
+            free(track->sectors[sec].data);
+            track->sectors[sec].data = NULL;
 
             printf("-");
             all_ok = false;
@@ -553,7 +565,7 @@ static void process_floppy(void) {
             // FIXME: storing complete tracks would simplify this
             if (image != NULL) {
                 for (int sec = track->first_sector; sec <= track->last_sector; sec++) {
-                    fwrite(track->sectors[sec], 1, track->sector_size, image);
+                    fwrite(track->sectors[sec].data, 1, track->sector_size, image);
                 }
                 fflush(image);
             }
