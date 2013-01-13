@@ -301,12 +301,17 @@ static bool probe_track(track_t *track) {
 
 static void probe_disk(disk_t *disk) {
     // Probe both sides of cylinder 2 to figure out the disk geometry.
+    // (Cylinder 2 because we need a physical cylinder greater than 0 to figure
+    // out the logical-to-physical mapping, and because cylinder 0 may
+    // reasonably be unformatted on disks where it's a bootblock.)
+
+    const int cyl = 2;
     for (int head = 0; head < disk->num_phys_heads; head++) {
-        probe_track(&(disk->tracks[2][head]));
+        probe_track(&(disk->tracks[cyl][head]));
     }
 
-    track_t *side0 = &(disk->tracks[2][0]);
-    track_t *side1 = &(disk->tracks[2][1]);
+    track_t *side0 = &(disk->tracks[cyl][0]);
+    track_t *side1 = &(disk->tracks[cyl][1]);
 
     if (!(side0->probed || side1->probed)) {
         die("Cylinder 2 unreadable on either side");
