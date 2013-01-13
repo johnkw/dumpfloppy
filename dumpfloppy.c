@@ -41,10 +41,6 @@ static int drive_selector(int head) {
     return (head << 2) | drive;
 }
 
-static int sector_bytes(int size) {
-    return 128 << size;
-}
-
 typedef enum {
     HEADS_NORMAL, // physical == logical
     HEADS_SEPARATE, // all are logical head 0
@@ -97,7 +93,8 @@ typedef struct {
     int log_cyl;
     int log_head;
     const data_mode_t *data_mode;
-    int sector_size; // FDC code; decode with sector_bytes
+    int sector_size_code; // FDC code
+    int sector_size; // derived from sector_size
     int first_sector;
     int last_sector;
     unsigned char *sectors[MAX_SECS];
@@ -110,6 +107,7 @@ const track_t EMPTY_TRACK = {
     .log_cyl = -1,
     .log_head = -1,
     .data_mode = NULL,
+    .sector_size_code = -1,
     .sector_size = -1,
     .first_sector = -1,
     .last_sector = -1,
@@ -169,6 +167,7 @@ static void copy_track_mode(const disk_t *disk,
     }
 
     dest->data_mode = src->data_mode;
+    dest->sector_size_code = src->sector_size_code;
     dest->sector_size = src->sector_size;
     dest->first_sector = src->first_sector;
     dest->last_sector = src->last_sector;
@@ -241,18 +240,18 @@ static bool fd_read(const track_t *track, int log_sector,
     cmd->cmd[2] = track->log_cyl;
     cmd->cmd[3] = track->log_head;
     cmd->cmd[4] = log_sector;
-    cmd->cmd[5] = track->sector_size;
+    cmd->cmd[5] = track->sector_size_code;
     // End of track sector number.
     cmd->cmd[6] = 0xFF;
     // Intersector gap. There's a complex table of these for various formats in
     // the M1543C datasheet; the fdutils manual says it doesn't make any
     // difference for read. FIXME: hmm.
     cmd->cmd[7] = 0x1B;
-    // Bytes in sector -- but only if sector size is 0, else it should be 0xFF.
-    if (track->sector_size == 0) {
-        cmd->cmd[8] = 128;
+    // Bytes in sector -- but only if size code is 0, else it should be 0xFF.
+    if (track->sector_size_code == 0) {
+        cmd->cmd[8] = track->sector_size;
     } else {
-        cmd->cmd[8] = 0xFF; // data length
+        cmd->cmd[8] = 0xFF;
     }
     cmd->cmd_count = 9;
     cmd->flags = FD_RAW_READ | FD_RAW_INTR | FD_RAW_NEED_SEEK;
@@ -295,7 +294,8 @@ static bool probe_track(track_t *track) {
                       &cmd)) {
             track->log_cyl = cmd.reply[3];
             track->log_head = cmd.reply[4];
-            track->sector_size = cmd.reply[6];
+            track->sector_size_code = cmd.reply[6];
+            track->sector_size = 128 << track->sector_size_code;
             track->data_mode = &DATA_MODES[i];
             printf(" %s", track->data_mode->name);
             fflush(stdout);
@@ -325,7 +325,7 @@ static bool probe_track(track_t *track) {
         // Check the other values are consistent with what we saw first time.
         if ((cmd.reply[3] != track->log_cyl)
             || (cmd.reply[4] != track->log_head)
-            || (cmd.reply[6] != track->sector_size)) {
+            || (cmd.reply[6] != track->sector_size_code)) {
             // FIXME: handle better
             printf(" mixed sector formats\n");
             return false;
@@ -362,7 +362,7 @@ static bool probe_track(track_t *track) {
     track->last_sector = last;
 
     printf(" %dx%d (%d-%d)\n", (last + 1) - first,
-                               sector_bytes(track->sector_size),
+                               track->sector_size,
                                first, last);
 
     track->probed = true;
@@ -384,12 +384,10 @@ static bool read_track(track_t *track) {
            track->phys_cyl, track->phys_head, track->log_cyl, track->log_head);
     fflush(stdout);
 
-    int one_sector = sector_bytes(track->sector_size);
-
     // Try reading the whole track to start with.
     // If this works, it's a lot faster than reading sector-by-sector.
     const int num_sectors = (track->last_sector + 1) - track->first_sector;
-    const int track_size = one_sector * num_sectors;
+    const int track_size = track->sector_size * num_sectors;
     unsigned char track_buf[track_size];
     bool read_track = true;
     if (!fd_read(track, track->first_sector, track_buf, track_size, &cmd)) {
@@ -411,8 +409,7 @@ static bool read_track(track_t *track) {
         fflush(stdout);
 
         // Allocate the sector.
-        const int buf_size = one_sector;
-        track->sectors[sec] = malloc(buf_size);
+        track->sectors[sec] = malloc(track->sector_size);
         if (track->sectors[sec] == NULL) {
             die("malloc failed");
         }
@@ -421,10 +418,10 @@ static bool read_track(track_t *track) {
             // Get it from the whole-track read.
             // FIXME: this is awfully ugly
             memcpy(track->sectors[sec],
-                   track_buf + (one_sector * (sec - track->first_sector)),
-                   one_sector);
+                   track_buf + (track->sector_size * (sec - track->first_sector)),
+                   track->sector_size);
             printf("=");
-        } else if (!fd_read(track, sec, track->sectors[sec], buf_size, &cmd)) {
+        } else if (!fd_read(track, sec, track->sectors[sec], track->sector_size, &cmd)) {
             // Failed -- throw it away.
             free(track->sectors[sec]);
             track->sectors[sec] = NULL;
@@ -554,7 +551,7 @@ static void process_floppy(void) {
             // FIXME: storing complete tracks would simplify this
             if (image != NULL) {
                 for (int sec = track->first_sector; sec <= track->last_sector; sec++) {
-                    fwrite(track->sectors[sec], 1, sector_bytes(track->sector_size), image);
+                    fwrite(track->sectors[sec], 1, track->sector_size, image);
                 }
                 fflush(image);
             }
