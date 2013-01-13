@@ -41,6 +41,10 @@ static int drive_selector(int head) {
     return (head << 2) | drive;
 }
 
+static int sector_bytes(int size) {
+    return 128 << size;
+}
+
 typedef struct {
     const char *name;
     int rate; // 0 to 3
@@ -79,6 +83,30 @@ static void apply_data_mode(const data_mode_t *mode,
         cmd->cmd[0] &= ~0x40;
     }
 }
+
+typedef struct {
+    bool probed;
+    int phys_cyl;
+    int phys_head;
+    int log_cyl;
+    int log_head;
+    const data_mode_t *data_mode;
+    int sector_size; // FDC code; decode with sector_bytes
+    int first_sector;
+    int num_sectors;
+} track_t;
+
+const track_t empty_track = {
+    .probed = false,
+    .phys_cyl = -1,
+    .phys_head = -1,
+    .log_cyl = -1,
+    .log_head = -1,
+    .data_mode = NULL,
+    .sector_size = -1,
+    .first_sector = -1,
+    .num_sectors = -1,
+};
 
 // Seek the head back to track 0.
 // Give up if it's stepped 80 tracks and not found track 0 (so you probably
@@ -128,38 +156,101 @@ static bool fd_readid(int cyl, int head, const data_mode_t *mode,
     return ((cmd->reply[0] >> 6) & 3) == 0;
 }
 
-static void probe_track_mode(int cyl, int head) {
-    const data_mode_t *mode = NULL;
+static bool probe_track(track_t *track) {
     struct floppy_raw_cmd cmd;
 
-    printf("%02d.%d: ", cyl, head);
+    track->probed = false;
+
+    printf("Probing %02d.%d:", track->phys_cyl, track->phys_head);
     fflush(stdout);
 
+    // Identify the data mode (assuming there's only one; we don't handle disks
+    // with multiple formats per track).
     // Try all the possible modes until we can read a sector ID.
     for (int i = 0; ; i++) {
         if (data_modes[i].name == NULL) {
-            printf("unknown data mode\n");
-            // FIXME: fail or retry
-            return;
+            printf(" unknown data mode\n");
+            // FIXME: retry
+            return false;
         }
 
-        if (fd_readid(cyl, head, &data_modes[i], &cmd)) {
-            mode = &data_modes[i];
-            printf("%s ", mode->name);
+        if (fd_readid(track->phys_cyl, track->phys_head, &data_modes[i],
+                      &cmd)) {
+            track->log_cyl = cmd.reply[3];
+            track->log_head = cmd.reply[4];
+            track->sector_size = cmd.reply[6];
+            track->data_mode = &data_modes[i];
+            printf(" %s", track->data_mode->name);
             fflush(stdout);
             break;
         }
     }
 
-    // See what sectors are available.
-    for (int i = 0; i < 30; i++) {
-        fd_readid(cyl, head, mode, &cmd);
-        // FIXME: if this fails, exit
-        printf("C %d H %d S %d size %d EOT %d\n", cmd.reply[3], cmd.reply[4], cmd.reply[5], cmd.reply[6], cmd.reply[1] & 0x80);
-        // FIXME: if C == cyl, OK
-        // if C == cyl / 2, ask for doublestepping
-        // if C == cyl * 2, complain that this is the wrong kind of drive
+    // Identify the sector numbering scheme.
+    // Keep track of which sectors we've seen.
+    const int MAX_SECS = 256;
+    bool seen_sec[MAX_SECS];
+    for (int i = 0; i < MAX_SECS; i++) {
+        seen_sec[i] = false;
     }
+    seen_sec[cmd.reply[5]] = true;
+
+    // Read enough IDs for a few revolutions of the disk.
+    for (int i = 0; i < 30; i++) {
+        if (!fd_readid(track->phys_cyl, track->phys_head, track->data_mode,
+                       &cmd)) {
+            // FIXME: retry
+            printf(" readid failed\n");
+            return false;
+        }
+
+        seen_sec[cmd.reply[5]] = true;
+
+        // Check the other values are consistent with what we saw first time.
+        if ((cmd.reply[3] != track->log_cyl)
+            || (cmd.reply[4] != track->log_head)
+            || (cmd.reply[6] != track->sector_size)) {
+            // FIXME: handle better
+            printf(" mixed sector formats\n");
+            return false;
+        }
+
+        // FIXME: we could get out of this loop sooner with a heuristic
+    }
+
+    // Find the range of sectors involved.
+    // We must have seen at least one sector by this point.
+    int first = MAX_SECS;
+    int last = 0;
+    for (int i = 0; i < MAX_SECS; i++) {
+        if (seen_sec[i]) {
+            if (i < first) {
+                first = i;
+            }
+            if (i > last) {
+                last = i;
+            }
+        }
+    }
+
+    // Check it's contiguous. (We don't handle cases where it isn't.)
+    for (int i = first; i <= last; i++) {
+        if (!seen_sec[i]) {
+            // FIXME: this is a bad idea on dodgy disks
+            printf(" sector numbering not contiguous\n");
+            return false;
+        }
+    }
+
+    track->first_sector = first;
+    track->num_sectors = (last + 1) - first;
+
+    printf(" %dx%d (%d-%d)\n", track->num_sectors,
+                               sector_bytes(track->sector_size),
+                               track->first_sector, last);
+
+    track->probed = true;
+    return true;
 }
 
 static void process_floppy(void) {
@@ -185,10 +276,20 @@ static void process_floppy(void) {
 
     for (int cyl = 0; cyl < 80; cyl++) { // FIXME: num cylinders
         // FIXME: heads
-        probe_track_mode(cyl, 0);
+        track_t track = empty_track;
+        track.phys_cyl = cyl;
+        track.phys_head = 0;
+
+        if (!probe_track(&track)) {
+            printf("probe failed\n");
+        }
 
         // ... read track
     }
+
+    // FIXME: if C == cyl, OK
+    // if C == cyl / 2, ask for doublestepping
+    // if C == cyl * 2, complain that this is the wrong kind of drive
 
     close(dev_fd);
 }
@@ -196,6 +297,7 @@ static void process_floppy(void) {
 static void usage(void) {
     fprintf(stderr, "usage: dumpfloppy [-d NUM] [IMAGE-FILE]\n");
     fprintf(stderr, "  -d NUM     drive number to read from (default 0)\n");
+    // FIXME: choice of interleaving in output formats (.dsd, .adl, .adf)
 }
 
 int main(int argc, char **argv) {
