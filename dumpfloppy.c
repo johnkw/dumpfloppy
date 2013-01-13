@@ -384,6 +384,21 @@ static bool read_track(track_t *track) {
            track->phys_cyl, track->phys_head, track->log_cyl, track->log_head);
     fflush(stdout);
 
+    int one_sector = sector_bytes(track->sector_size);
+
+    // Try reading the whole track to start with.
+    // If this works, it's a lot faster than reading sector-by-sector.
+    const int num_sectors = (track->last_sector + 1) - track->first_sector;
+    const int track_size = one_sector * num_sectors;
+    unsigned char track_buf[track_size];
+    bool read_track = true;
+    if (!fd_read(track, track->first_sector, track_buf, track_size, &cmd)) {
+        read_track = false;
+        printf(" *-");
+        fflush(stdout);
+    }
+
+    // Put each sector into place.
     bool all_ok = true;
     for (int sec = track->first_sector; sec <= track->last_sector; sec++) {
         if (track->sectors[sec] != NULL) {
@@ -396,13 +411,20 @@ static bool read_track(track_t *track) {
         fflush(stdout);
 
         // Allocate the sector.
-        const int buf_size = sector_bytes(track->sector_size);
+        const int buf_size = one_sector;
         track->sectors[sec] = malloc(buf_size);
         if (track->sectors[sec] == NULL) {
             die("malloc failed");
         }
 
-        if (!fd_read(track, sec, track->sectors[sec], buf_size, &cmd)) {
+        if (read_track) {
+            // Get it from the whole-track read.
+            // FIXME: this is awfully ugly
+            memcpy(track->sectors[sec],
+                   track_buf + (one_sector * (sec - track->first_sector)),
+                   one_sector);
+            printf("=");
+        } else if (!fd_read(track, sec, track->sectors[sec], buf_size, &cmd)) {
             // Failed -- throw it away.
             free(track->sectors[sec]);
             track->sectors[sec] = NULL;
