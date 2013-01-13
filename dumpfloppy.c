@@ -54,7 +54,7 @@ typedef struct {
 // Following what the .IMD spec says, the rates here are the data transfer rate
 // to the drive -- FM-500k transfers half as much data as MFM-500k owing to the
 // less efficient encoding.
-const data_mode_t data_modes[] = {
+const data_mode_t DATA_MODES[] = {
     // 5.25" DD/QD and 3.5" DD drives
     { "MFM-250k", 2, false },
     { "FM-250k", 2, true },
@@ -96,7 +96,8 @@ typedef struct {
     int num_sectors;
 } track_t;
 
-const track_t empty_track = {
+#define MAX_SECS 256
+const track_t EMPTY_TRACK = {
     .probed = false,
     .phys_cyl = -1,
     .phys_head = -1,
@@ -107,6 +108,39 @@ const track_t empty_track = {
     .first_sector = -1,
     .num_sectors = -1,
 };
+
+static void init_track(int phys_cyl, int phys_head, track_t *track) {
+    *track = EMPTY_TRACK;
+    track->phys_cyl = phys_cyl;
+    track->phys_head = phys_head;
+}
+
+#define MAX_CYLS 256
+#define MAX_HEADS 2
+typedef struct {
+    int num_phys_cyls;
+    int num_phys_heads;
+    int first_log_cyl; // what physical cyl 0 corresponds to
+    int cyl_step; // how many physical cyls to step for each logical one
+    // FIXME: head numbering?
+    track_t tracks[MAX_CYLS][MAX_HEADS];
+} disk_t;
+
+const disk_t EMPTY_DISK = {
+    .num_phys_cyls = -1,
+    .num_phys_heads = 2,
+    .first_log_cyl = 0,
+    .cyl_step = 1,
+};
+
+static void init_disk(disk_t *disk) {
+    *disk = EMPTY_DISK;
+    for (int cyl = 0; cyl < MAX_CYLS; cyl++) {
+        for (int head = 0; head < MAX_HEADS; head++) {
+            init_track(cyl, head, &(disk->tracks[cyl][head]));
+        }
+    }
+}
 
 // Seek the head back to track 0.
 // Give up if it's stepped 80 tracks and not found track 0 (so you probably
@@ -168,18 +202,18 @@ static bool probe_track(track_t *track) {
     // with multiple formats per track).
     // Try all the possible modes until we can read a sector ID.
     for (int i = 0; ; i++) {
-        if (data_modes[i].name == NULL) {
+        if (DATA_MODES[i].name == NULL) {
             printf(" unknown data mode\n");
             // FIXME: retry
             return false;
         }
 
-        if (fd_readid(track->phys_cyl, track->phys_head, &data_modes[i],
+        if (fd_readid(track->phys_cyl, track->phys_head, &DATA_MODES[i],
                       &cmd)) {
             track->log_cyl = cmd.reply[3];
             track->log_head = cmd.reply[4];
             track->sector_size = cmd.reply[6];
-            track->data_mode = &data_modes[i];
+            track->data_mode = &DATA_MODES[i];
             printf(" %s", track->data_mode->name);
             fflush(stdout);
             break;
@@ -188,7 +222,6 @@ static bool probe_track(track_t *track) {
 
     // Identify the sector numbering scheme.
     // Keep track of which sectors we've seen.
-    const int MAX_SECS = 256;
     bool seen_sec[MAX_SECS];
     for (int i = 0; i < MAX_SECS; i++) {
         seen_sec[i] = false;
@@ -274,17 +307,22 @@ static void process_floppy(void) {
         fd_recalibrate(&cmd);
     }
 
-    for (int cyl = 0; cyl < 80; cyl++) { // FIXME: num cylinders
-        // FIXME: heads
-        track_t track = empty_track;
-        track.phys_cyl = cyl;
-        track.phys_head = 0;
+    disk_t disk;
+    init_disk(&disk);
 
-        if (!probe_track(&track)) {
-            printf("probe failed\n");
+    disk.num_phys_cyls = 80; // FIXME: option for this
+    disk.num_phys_heads = 2;
+
+    for (int cyl = 0; cyl < disk.num_phys_cyls; cyl++) {
+        for (int head = 0; head < disk.num_phys_heads; head++) {
+            track_t *track = &(disk.tracks[cyl][head]);
+
+            if (!probe_track(track)) {
+                printf("probe failed\n");
+            }
+
+            // ... read track
         }
-
-        // ... read track
     }
 
     // FIXME: if C == cyl, OK
