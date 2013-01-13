@@ -115,6 +115,19 @@ static void init_track(int phys_cyl, int phys_head, track_t *track) {
     track->phys_head = phys_head;
 }
 
+static void copy_track_mode(const track_t *src, track_t *dest) {
+    if (!src->probed) return;
+
+    dest->probed = true;
+    dest->log_cyl = dest->phys_cyl + (src->log_cyl - src->phys_cyl);
+    // FIXME: this is wrong for swapped heads
+    dest->log_head = dest->phys_head + (src->log_head - src->phys_head);
+    dest->data_mode = src->data_mode;
+    dest->sector_size = src->sector_size;
+    dest->first_sector = src->first_sector;
+    dest->num_sectors = src->num_sectors;
+}
+
 #define MAX_CYLS 256
 #define MAX_HEADS 2
 typedef struct {
@@ -286,6 +299,37 @@ static bool probe_track(track_t *track) {
     return true;
 }
 
+static void probe_disk(disk_t *disk) {
+    // Probe both sides of cylinder 2 to figure out the disk geometry.
+    for (int head = 0; head < disk->num_phys_heads; head++) {
+        probe_track(&(disk->tracks[2][head]));
+    }
+
+    track_t *side0 = &(disk->tracks[2][0]);
+    track_t *side1 = &(disk->tracks[2][1]);
+
+    if (!(side0->probed || side1->probed)) {
+        die("Cylinder 2 unreadable on either side");
+    } else if (side0->probed && !side1->probed) {
+        printf("Single-sided disk\n");
+        disk->num_phys_heads = 1;
+    } else if (side0->log_head == 0 && side1->log_head == 0) {
+        printf("Double-sided disk with separate sides\n");
+        // FIXME: do something about it (e.g. don't interleave image)
+    } else {
+        printf("Double-sided disk\n");
+    }
+
+    if (side0->log_cyl * 2 == side0->phys_cyl) {
+        printf("Doublestepping required (40T disk in 80T drive)\n");
+        disk->cyl_step = 2;
+    } else if (side0->log_cyl == side0->phys_cyl * 2) {
+        die("Can't read this disk (80T disk in 40T drive)");
+    } else if (side0->log_cyl != side0->phys_cyl) {
+        printf("Mismatch between physical and logical cylinders\n");
+    }
+}
+
 static void process_floppy(void) {
     char dev_filename[] = "/dev/fdX";
     dev_filename[7] = '0' + drive;
@@ -313,21 +357,32 @@ static void process_floppy(void) {
     disk.num_phys_cyls = 80; // FIXME: option for this
     disk.num_phys_heads = 2;
 
-    for (int cyl = 0; cyl < disk.num_phys_cyls; cyl++) {
+    probe_disk(&disk);
+
+    for (int cyl = 0; cyl < disk.num_phys_cyls; cyl += disk.cyl_step) {
         for (int head = 0; head < disk.num_phys_heads; head++) {
             track_t *track = &(disk.tracks[cyl][head]);
 
-            if (!probe_track(track)) {
-                printf("probe failed\n");
+            // FIXME: option to force probe
+            if (head > 0) {
+                // Try the mode from the previous head on the same cyl.
+                copy_track_mode(&(disk.tracks[cyl][head - 1]), track);
+            } else if (cyl > 0) {
+                // Try the mode from the previous cyl on the same head.
+                copy_track_mode(&(disk.tracks[cyl - 1][head]), track);
+            }
+
+            if (!track->probed) {
+                if (!probe_track(track)) {
+                    printf("probe failed\n");
+                    continue;
+                }
             }
 
             // ... read track
+            // ... if read failed, probe again
         }
     }
-
-    // FIXME: if C == cyl, OK
-    // if C == cyl / 2, ask for doublestepping
-    // if C == cyl * 2, complain that this is the wrong kind of drive
 
     close(dev_fd);
 }
