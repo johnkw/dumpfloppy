@@ -45,6 +45,11 @@ static int sector_bytes(int size) {
     return 128 << size;
 }
 
+typedef enum {
+    HEADS_NORMAL, // physical == logical
+    HEADS_SEPARATE, // all are logical head 0
+} head_mode_t;
+
 typedef struct {
     const char *name;
     int rate; // 0 to 3
@@ -119,19 +124,6 @@ static void init_track(int phys_cyl, int phys_head, track_t *track) {
     }
 }
 
-static void copy_track_mode(const track_t *src, track_t *dest) {
-    if (!src->probed) return;
-
-    dest->probed = true;
-    dest->log_cyl = dest->phys_cyl + (src->log_cyl - src->phys_cyl);
-    // FIXME: this is wrong for swapped heads
-    dest->log_head = dest->phys_head + (src->log_head - src->phys_head);
-    dest->data_mode = src->data_mode;
-    dest->sector_size = src->sector_size;
-    dest->first_sector = src->first_sector;
-    dest->last_sector = src->last_sector;
-}
-
 #define MAX_CYLS 256
 #define MAX_HEADS 2
 typedef struct {
@@ -139,7 +131,7 @@ typedef struct {
     int num_phys_heads;
     int first_log_cyl; // what physical cyl 0 corresponds to
     int cyl_step; // how many physical cyls to step for each logical one
-    // FIXME: head numbering?
+    head_mode_t head_mode;
     track_t tracks[MAX_CYLS][MAX_HEADS];
 } disk_t;
 
@@ -148,6 +140,7 @@ const disk_t EMPTY_DISK = {
     .num_phys_heads = 2,
     .first_log_cyl = 0,
     .cyl_step = 1,
+    .head_mode = HEADS_NORMAL,
 };
 
 static void init_disk(disk_t *disk) {
@@ -157,6 +150,28 @@ static void init_disk(disk_t *disk) {
             init_track(cyl, head, &(disk->tracks[cyl][head]));
         }
     }
+}
+
+static void copy_track_mode(const disk_t *disk,
+                            const track_t *src, track_t *dest) {
+    if (!src->probed) return;
+
+    dest->probed = true;
+
+    dest->log_cyl = dest->phys_cyl + disk->first_log_cyl;
+    switch (disk->head_mode) {
+    case HEADS_NORMAL:
+        dest->log_head = dest->phys_head;
+        break;
+    case HEADS_SEPARATE:
+        dest->log_head = 0;
+        break;
+    }
+
+    dest->data_mode = src->data_mode;
+    dest->sector_size = src->sector_size;
+    dest->first_sector = src->first_sector;
+    dest->last_sector = src->last_sector;
 }
 
 // Seek the head back to track 0.
@@ -430,7 +445,7 @@ static void probe_disk(disk_t *disk) {
         disk->num_phys_heads = 1;
     } else if (side0->log_head == 0 && side1->log_head == 0) {
         printf("Double-sided disk with separate sides\n");
-        // FIXME: do something about it (e.g. don't interleave image)
+        disk->head_mode = HEADS_SEPARATE;
     } else {
         printf("Double-sided disk\n");
     }
@@ -481,10 +496,10 @@ static void process_floppy(void) {
             // FIXME: option to force probe
             if (head > 0) {
                 // Try the mode from the previous head on the same cyl.
-                copy_track_mode(&(disk.tracks[cyl][head - 1]), track);
+                copy_track_mode(&disk, &(disk.tracks[cyl][head - 1]), track);
             } else if (cyl > 0) {
                 // Try the mode from the previous cyl on the same head.
-                copy_track_mode(&(disk.tracks[cyl - 1][head]), track);
+                copy_track_mode(&disk, &(disk.tracks[cyl - 1][head]), track);
             }
 
             const int max_tries = 10;
