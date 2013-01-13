@@ -403,42 +403,47 @@ static bool read_track(track_t *track) {
     const int num_sectors = (track->last_sector + 1) - track->first_sector;
     const int track_size = track->sector_size * num_sectors;
     unsigned char track_buf[track_size];
-    bool read_track = true;
-    if (!fd_read(track, track->first_sector, track_buf, track_size, &cmd)) {
-        read_track = false;
-        printf(" *-");
-        fflush(stdout);
+    bool read_whole_track = false;
+    if (fd_read(track, track->first_sector, track_buf, track_size, &cmd)) {
+        read_whole_track = true;
+        printf(" %d-%d+", track->first_sector, track->last_sector);
     }
 
     // Put each sector into place.
     bool all_ok = true;
     for (int sec = track->first_sector; sec <= track->last_sector; sec++) {
-        if (track->sectors[sec].data != NULL) {
+        sector_t *sector = &(track->sectors[sec]);
+
+        if (sector->data != NULL) {
             // Already got this one.
             printf(" (%d)", sec);
             continue;
         }
 
-        printf(" %d", sec);
-        fflush(stdout);
-
         // Allocate the sector.
-        track->sectors[sec].data = malloc(track->sector_size);
-        if (track->sectors[sec].data == NULL) {
+        sector->data = malloc(track->sector_size);
+        if (sector->data == NULL) {
             die("malloc failed");
         }
 
-        if (read_track) {
-            // Get it from the whole-track read.
-            // FIXME: this is awfully ugly
-            memcpy(track->sectors[sec].data,
-                   track_buf + (track->sector_size * (sec - track->first_sector)),
+        printf(" %d", sec);
+        fflush(stdout);
+
+        if (read_whole_track) {
+            // We read it as part of the whole track.
+            const int rel_sec = sec - track->first_sector;
+            memcpy(sector->data,
+                   track_buf + (track->sector_size * rel_sec),
                    track->sector_size);
             printf("=");
-        } else if (!fd_read(track, sec, track->sectors[sec].data, track->sector_size, &cmd)) {
+            continue;
+        }
+
+        // Read a single sector.
+        if (!fd_read(track, sec, sector->data, track->sector_size, &cmd)) {
             // Failed -- throw it away.
-            free(track->sectors[sec].data);
-            track->sectors[sec].data = NULL;
+            free(sector->data);
+            sector->data = NULL;
 
             printf("-");
             all_ok = false;
