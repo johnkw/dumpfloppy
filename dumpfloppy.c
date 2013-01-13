@@ -14,12 +14,14 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 static int dev_fd;
@@ -47,6 +49,7 @@ typedef enum {
 } head_mode_t;
 
 typedef struct {
+    uint8_t imd_mode;
     const char *name;
     int rate; // 0 to 3
     bool is_fm;
@@ -57,22 +60,22 @@ typedef struct {
 // less efficient encoding.
 const data_mode_t DATA_MODES[] = {
     // 5.25" DD/QD and 3.5" DD drives
-    { "MFM-250k", 2, false },
-    { "FM-250k", 2, true },
+    { 5, "MFM-250k", 2, false },
+    { 2, "FM-250k", 2, true },
 
     // DD media in 5.25" HD drives
-    { "MFM-300k", 1, false },
-    { "FM-300k", 1, true },
+    { 4, "MFM-300k", 1, false },
+    { 1, "FM-300k", 1, true },
 
     // 3.5" HD, 5.25" HD and 8" drives
-    { "MFM-500k", 0, false },
-    { "FM-500k", 0, true },
+    { 3, "MFM-500k", 0, false },
+    { 0, "FM-500k", 0, true },
 
     // 3.5" ED drives
-    { "MFM-1000k", 3, false },
+    { 6, "MFM-1000k", 3, false }, // FIXME: not in IMD spec
     // Rate 3 for FM isn't allowed.
 
-    { NULL, 0, false }
+    { -1, NULL, 0, false }
 };
 
 // Apply a mode specification to a floppy_raw_cmd -- which must contain only
@@ -109,6 +112,7 @@ typedef struct {
     int sector_size; // derived from sector_size
     int first_sector;
     int last_sector;
+    int num_sectors; // derived from first_sector/last_sector
     sector_t sectors[MAX_SECS]; // indexed by logical sector
 } track_t;
 
@@ -123,6 +127,7 @@ const track_t EMPTY_TRACK = {
     .sector_size = -1,
     .first_sector = -1,
     .last_sector = -1,
+    .num_sectors = -1,
 };
 
 static void init_track(int phys_cyl, int phys_head, track_t *track) {
@@ -183,6 +188,7 @@ static void copy_track_mode(const disk_t *disk,
     dest->sector_size = src->sector_size;
     dest->first_sector = src->first_sector;
     dest->last_sector = src->last_sector;
+    dest->num_sectors = src->num_sectors;
 }
 
 // Seek the head back to track 0.
@@ -374,10 +380,10 @@ static bool probe_track(track_t *track) {
 
     track->first_sector = first;
     track->last_sector = last;
+    track->num_sectors = (last + 1) - first;
 
-    printf(" %dx%d (%d-%d)\n", (last + 1) - first,
-                               track->sector_size,
-                               first, last);
+    printf(" %dx%d (%d-%d)\n", track->num_sectors, track->sector_size,
+                               track->first_sector, track->last_sector);
 
     track->probed = true;
     return true;
@@ -400,8 +406,7 @@ static bool read_track(track_t *track) {
 
     // Try reading the whole track to start with.
     // If this works, it's a lot faster than reading sector-by-sector.
-    const int num_sectors = (track->last_sector + 1) - track->first_sector;
-    const int track_size = track->sector_size * num_sectors;
+    const int track_size = track->sector_size * track->num_sectors;
     unsigned char track_buf[track_size];
     bool read_whole_track = false;
     if (fd_read(track, track->first_sector, track_buf, track_size, &cmd)) {
@@ -498,6 +503,76 @@ static void probe_disk(disk_t *disk) {
     }
 }
 
+static void write_imd_header(FILE *image) {
+    time_t now = time(NULL);
+    const struct tm *local = localtime(&now);
+
+    fprintf(image, "IMD 1.18-%s-%s: %02d/%02d/%04d %02d:%02d:%02d\n",
+            PACKAGE_NAME, PACKAGE_VERSION,
+            local->tm_mday, local->tm_mon + 1, local->tm_year + 1900,
+            local->tm_hour, local->tm_min, local->tm_sec);
+    fputc(0x1A, image);
+}
+
+#define IMD_NEED_CYL_MAP 0x80
+#define IMD_NEED_HEAD_MAP 0x40
+#define IMD_SDR_UNAVAILABLE 0x00
+#define IMD_SDR_NORMAL 0x01
+static void write_imd_track(const track_t *track, FILE *image) {
+    uint8_t flags = 0;
+
+    uint8_t sec_map[track->num_sectors];
+    uint8_t cyl_map[track->num_sectors];
+    uint8_t head_map[track->num_sectors];
+    for (int i = 0; i < track->num_sectors; i++) {
+        // FIXME: this is rubbish -- we don't actually track the physical
+        // sector numbers (because I've not figured out how to detect the start
+        // of the rotation), or any of this per-sector.
+        // FIXME: when the .IMD spec says the sector map lists "the physical ID
+        // for each sector", it means "the *logical* ID". (That is, if you
+        // image a PC floppy with ImageDisk, it produces 01 02 ... 09 here; if
+        // you image a BBC floppy it produces 00 01 .. 09.)
+        sec_map[i] = track->first_sector + i;
+        cyl_map[i] = track->log_cyl;
+        head_map[i] = track->log_head;
+
+        if (cyl_map[i] != track->phys_cyl) {
+            flags |= IMD_NEED_CYL_MAP;
+        }
+        if (head_map[i] != track->phys_head) {
+            flags |= IMD_NEED_HEAD_MAP;
+        }
+    }
+
+    const uint8_t header[] = {
+        track->data_mode->imd_mode,
+        track->phys_cyl,
+        flags | track->phys_head,
+        track->num_sectors,
+        track->sector_size_code,
+    };
+    fwrite(header, 1, 5, image);
+
+    fwrite(sec_map, 1, track->num_sectors, image);
+    if (flags & IMD_NEED_CYL_MAP) {
+        fwrite(cyl_map, 1, track->num_sectors, image);
+    }
+    if (flags & IMD_NEED_HEAD_MAP) {
+        fwrite(head_map, 1, track->num_sectors, image);
+    }
+
+    for (int sec = track->first_sector; sec <= track->last_sector; sec++) {
+        const sector_t *sector = &(track->sectors[sec]);
+        if (sector->data == NULL) {
+            fputc(IMD_SDR_UNAVAILABLE, image);
+        } else {
+            // FIXME: compress if all bytes the same
+            fputc(IMD_SDR_NORMAL, image);
+            fwrite(sector->data, 1, track->sector_size, image);
+        }
+    }
+}
+
 static void process_floppy(void) {
     char dev_filename[] = "/dev/fdX";
     dev_filename[7] = '0' + drive;
@@ -533,6 +608,8 @@ static void process_floppy(void) {
         if (image == NULL) {
             die_errno("cannot open %s", image_filename);
         }
+
+        write_imd_header(image);
     }
 
     for (int cyl = 0; cyl < disk.num_phys_cyls; cyl += disk.cyl_step) {
@@ -566,12 +643,8 @@ static void process_floppy(void) {
                 track->probed = false;
             }
 
-            // Write sectors to the image file.
-            // FIXME: storing complete tracks would simplify this
             if (image != NULL) {
-                for (int sec = track->first_sector; sec <= track->last_sector; sec++) {
-                    fwrite(track->sectors[sec].data, 1, track->sector_size, image);
-                }
+                write_imd_track(track, image);
                 fflush(image);
             }
         }
