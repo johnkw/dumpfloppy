@@ -591,7 +591,7 @@ static void probe_disk(disk_t *disk) {
     track_t *side0 = &(disk->tracks[cyl][0]);
     sector_t *sec0 = &(side0->sectors[0]);
     track_t *side1 = &(disk->tracks[cyl][1]);
-    sector_t *sec1 = &(side0->sectors[0]);
+    sector_t *sec1 = &(side1->sectors[0]);
 
     if (!(side0->probed || side1->probed)) {
         die("Cylinder 2 unreadable on either side");
