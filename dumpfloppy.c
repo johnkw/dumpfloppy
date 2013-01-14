@@ -7,7 +7,6 @@
    fdutils project.
 */
 
-// FIXME: Rework data model to match the .IMD format completely
 // FIXME: Write an IMD-to-flat tool (i.e. an IMD loader and flat writer)
 //   FIXME: with choice of interleaving in output formats (.dsd, .adl, .adf)
 
@@ -47,6 +46,10 @@ static int drive_selector(int head) {
     return (head << 2) | drive;
 }
 
+static int sector_bytes(int code) {
+    return 128 << code;
+}
+
 typedef enum {
     HEADS_NORMAL, // physical == logical
     HEADS_SEPARATE, // all are logical head 0
@@ -62,6 +65,7 @@ typedef struct {
 // Following what the .IMD spec says, the rates here are the data transfer rate
 // to the drive -- FM-500k transfers half as much data as MFM-500k owing to the
 // less efficient encoding.
+// FIXME: index this array by imd_mode, and have a separate probe list
 const data_mode_t DATA_MODES[] = {
     // 5.25" DD/QD and 3.5" DD drives
     { 5, "MFM-250k", 2, false },
@@ -93,10 +97,16 @@ static void apply_data_mode(const data_mode_t *mode,
 }
 
 typedef struct {
+    uint8_t log_cyl;
+    uint8_t log_head;
+    uint8_t log_sector;
     unsigned char *data; // NULL if not read yet
 } sector_t;
 
 const sector_t EMPTY_SECTOR = {
+    .log_cyl = 0xFF,
+    .log_head = 0xFF,
+    .log_sector = 0xFF,
     .data = NULL,
 };
 
@@ -104,34 +114,29 @@ static void init_sector(sector_t *sector) {
     *sector = EMPTY_SECTOR;
 }
 
+static void free_sector(sector_t *sector) {
+    free(sector->data);
+    sector->data = NULL;
+}
+
 #define MAX_SECS 256
 typedef struct {
     bool probed;
+    const data_mode_t *data_mode;
     int phys_cyl;
     int phys_head;
-    int log_cyl;
-    int log_head;
-    const data_mode_t *data_mode;
+    int num_sectors;
     int sector_size_code; // FDC code
-    int sector_size; // derived from sector_size
-    int first_sector;
-    int last_sector;
-    int num_sectors; // derived from first_sector/last_sector
-    sector_t sectors[MAX_SECS]; // indexed by logical sector
+    sector_t sectors[MAX_SECS]; // indexed by physical sector
 } track_t;
 
 const track_t EMPTY_TRACK = {
     .probed = false,
+    .data_mode = NULL,
     .phys_cyl = -1,
     .phys_head = -1,
-    .log_cyl = -1,
-    .log_head = -1,
-    .data_mode = NULL,
-    .sector_size_code = -1,
-    .sector_size = -1,
-    .first_sector = -1,
-    .last_sector = -1,
     .num_sectors = -1,
+    .sector_size_code = -1,
 };
 
 static void init_track(int phys_cyl, int phys_head, track_t *track) {
@@ -143,21 +148,27 @@ static void init_track(int phys_cyl, int phys_head, track_t *track) {
     }
 }
 
+static void free_track(track_t *track) {
+    track->probed = false;
+    track->num_sectors = 0;
+    for (int i = 0; i < MAX_SECS; i++) {
+        free_sector(&(track->sectors[i]));
+    }
+}
+
 #define MAX_CYLS 256
 #define MAX_HEADS 2
 typedef struct {
     int num_phys_cyls;
     int num_phys_heads;
-    int first_log_cyl; // what physical cyl 0 corresponds to
+    track_t tracks[MAX_CYLS][MAX_HEADS]; // indexed by physical cyl/head
     int cyl_step; // how many physical cyls to step for each logical one
     head_mode_t head_mode;
-    track_t tracks[MAX_CYLS][MAX_HEADS]; // indexed by physical cyl/head
 } disk_t;
 
 const disk_t EMPTY_DISK = {
     .num_phys_cyls = -1,
     .num_phys_heads = 2,
-    .first_log_cyl = 0,
     .cyl_step = 1,
     .head_mode = HEADS_NORMAL,
 };
@@ -171,28 +182,42 @@ static void init_disk(disk_t *disk) {
     }
 }
 
-static void copy_track_mode(const disk_t *disk,
-                            const track_t *src, track_t *dest) {
+static void free_disk(disk_t *disk) {
+    for (int cyl = 0; cyl < MAX_CYLS; cyl++) {
+        for (int head = 0; head < MAX_HEADS; head++) {
+            free_track(&(disk->tracks[cyl][head]));
+        }
+    }
+}
+
+static void copy_track_layout(const disk_t *disk,
+                              const track_t *src, track_t *dest) {
     if (!src->probed) return;
 
+    free_track(dest);
+
     dest->probed = true;
-
-    dest->log_cyl = dest->phys_cyl + disk->first_log_cyl;
-    switch (disk->head_mode) {
-    case HEADS_NORMAL:
-        dest->log_head = dest->phys_head;
-        break;
-    case HEADS_SEPARATE:
-        dest->log_head = 0;
-        break;
-    }
-
     dest->data_mode = src->data_mode;
-    dest->sector_size_code = src->sector_size_code;
-    dest->sector_size = src->sector_size;
-    dest->first_sector = src->first_sector;
-    dest->last_sector = src->last_sector;
     dest->num_sectors = src->num_sectors;
+    dest->sector_size_code = src->sector_size_code;
+
+    int cyl_diff = dest->phys_cyl - src->phys_cyl;
+    for (int i = 0; i < src->num_sectors; i++) {
+        const sector_t *src_sec = &(src->sectors[i]);
+        sector_t *dest_sec = &(dest->sectors[i]);
+
+        dest_sec->log_cyl = src_sec->log_cyl + cyl_diff;
+        // FIXME: If we only ever copied from the same head, this wouldn't be
+        // necessary
+        switch (disk->head_mode) {
+        case HEADS_NORMAL:
+            dest_sec->log_head = dest->phys_head;
+            break;
+        case HEADS_SEPARATE:
+            dest_sec->log_head = 0;
+            break;
+        }
+    }
 }
 
 // Seek the head back to track 0.
@@ -221,16 +246,15 @@ static void fd_recalibrate(struct floppy_raw_cmd *cmd) {
 // cmd->reply[4] is logical head
 // cmd->reply[5] is logical sector
 // (128 << cmd->reply[6]) is sector size
-static bool fd_readid(int cyl, int head, const data_mode_t *mode,
-                      struct floppy_raw_cmd *cmd) {
+static bool fd_readid(const track_t *track, struct floppy_raw_cmd *cmd) {
     memset(cmd, 0, sizeof *cmd);
 
     cmd->cmd[0] = FD_READID;
-    cmd->cmd[1] = drive_selector(head);
+    cmd->cmd[1] = drive_selector(track->phys_head);
     cmd->cmd_count = 2;
     cmd->flags = FD_RAW_INTR | FD_RAW_NEED_SEEK;
-    cmd->track = cyl;
-    apply_data_mode(mode, cmd);
+    cmd->track = track->phys_cyl;
+    apply_data_mode(track->data_mode, cmd);
 
     if (ioctl(dev_fd, FDRAWCMD, cmd) < 0) {
         die_errno("FD_READID failed");
@@ -243,7 +267,8 @@ static bool fd_readid(int cyl, int head, const data_mode_t *mode,
     return ((cmd->reply[0] >> 6) & 3) == 0;
 }
 
-// Read sector data.
+// Read data from sectors with consecutive logical sector IDs.
+// The sector_t given is for the first sector to be read.
 //
 // Return true if all data was read. Upon return:
 // cmd->reply[0]--[2] are ST0-ST2
@@ -251,7 +276,7 @@ static bool fd_readid(int cyl, int head, const data_mode_t *mode,
 // cmd->reply[4] is logical head
 // cmd->reply[5] is logical sector
 // (128 << cmd->reply[6]) is sector size
-static bool fd_read(const track_t *track, int log_sector,
+static bool fd_read(const track_t *track, const sector_t *sector,
                     unsigned char *buf, size_t buf_size,
                     struct floppy_raw_cmd *cmd) {
     memset(cmd, 0, sizeof *cmd);
@@ -259,9 +284,9 @@ static bool fd_read(const track_t *track, int log_sector,
     // 0x80 is the MT (multiple tracks) bit.
     cmd->cmd[0] = FD_READ & ~0x80;
     cmd->cmd[1] = drive_selector(track->phys_head);
-    cmd->cmd[2] = track->log_cyl;
-    cmd->cmd[3] = track->log_head;
-    cmd->cmd[4] = log_sector;
+    cmd->cmd[2] = sector->log_cyl;
+    cmd->cmd[3] = sector->log_head;
+    cmd->cmd[4] = sector->log_sector;
     cmd->cmd[5] = track->sector_size_code;
     // End of track sector number.
     cmd->cmd[6] = 0xFF;
@@ -271,7 +296,7 @@ static bool fd_read(const track_t *track, int log_sector,
     cmd->cmd[7] = 0x1B;
     // Bytes in sector -- but only if size code is 0, else it should be 0xFF.
     if (track->sector_size_code == 0) {
-        cmd->cmd[8] = track->sector_size;
+        cmd->cmd[8] = sector_bytes(track->sector_size_code);
     } else {
         cmd->cmd[8] = 0xFF;
     }
@@ -294,17 +319,84 @@ static bool fd_read(const track_t *track, int log_sector,
     return ((cmd->reply[0] >> 6) & 3) == 0;
 }
 
-static bool probe_track(track_t *track) {
+// Read a sector ID and append it to the sectors in the track.
+static bool track_readid(track_t *track) {
     struct floppy_raw_cmd cmd;
 
-    track->probed = false;
+    if (track->num_sectors >= MAX_SECS) {
+        die("track_readid read too many sectors");
+    }
+
+    if (!fd_readid(track, &cmd)) {
+        return false;
+    }
+
+    sector_t *sector = &(track->sectors[track->num_sectors]);
+    sector->log_cyl = cmd.reply[3];
+    sector->log_head = cmd.reply[4];
+    sector->log_sector = cmd.reply[5];
+
+    if (track->sector_size_code != -1
+        && track->sector_size_code != cmd.reply[6]) {
+        // FIXME: handle this better -- e.g. discard all but first?
+        // or keep them and write multiple .IMDs?
+        die("mixed sector formats within track");
+    }
+    track->sector_size_code = cmd.reply[6];
+
+    track->num_sectors++;
+    return true;
+}
+
+// Find the sectors with the lowest and highest logical IDs in a track,
+// and whether the sectors have contiguous logical IDs.
+static void track_scan_sectors(track_t *track,
+                               sector_t **lowest, sector_t **highest,
+                               bool *contiguous) {
+    bool seen[MAX_SECS];
+    for (int i = 0; i < MAX_SECS; i++) {
+        seen[i] = false;
+    }
+
+    *lowest = NULL;
+    int lowest_id = MAX_SECS;
+    *highest = NULL;
+    int highest_id = 0;
+    for (int i = 0; i < track->num_sectors; i++) {
+        sector_t *sector = &(track->sectors[i]);
+        const int id = sector->log_sector;
+
+        seen[sector->log_sector] = true;
+
+        if (id < lowest_id) {
+            lowest_id = id;
+            *lowest = sector;
+        }
+        if (id > highest_id) {
+            highest_id = id;
+            *highest = sector;
+        }
+    }
+
+    *contiguous = true;
+    for (int i = lowest_id; i < highest_id; i++) {
+        if (!seen[i]) {
+            *contiguous = false;
+        }
+    }
+}
+
+static bool probe_track(track_t *track) {
+    free_track(track);
 
     printf("Probing %02d.%d:", track->phys_cyl, track->phys_head);
     fflush(stdout);
 
     // Identify the data mode (assuming there's only one; we don't handle disks
-    // with multiple formats per track).
+    // with multiple modes per track).
     // Try all the possible modes until we can read a sector ID.
+    track->num_sectors = 0;
+    track->sector_size_code = -1;
     for (int i = 0; ; i++) {
         if (DATA_MODES[i].name == NULL) {
             printf(" unknown data mode\n");
@@ -312,13 +404,8 @@ static bool probe_track(track_t *track) {
             return false;
         }
 
-        if (fd_readid(track->phys_cyl, track->phys_head, &DATA_MODES[i],
-                      &cmd)) {
-            track->log_cyl = cmd.reply[3];
-            track->log_head = cmd.reply[4];
-            track->sector_size_code = cmd.reply[6];
-            track->sector_size = 128 << track->sector_size_code;
-            track->data_mode = &DATA_MODES[i];
+        track->data_mode = &DATA_MODES[i];
+        if (track_readid(track)) {
             printf(" %s", track->data_mode->name);
             fflush(stdout);
             break;
@@ -326,30 +413,11 @@ static bool probe_track(track_t *track) {
     }
 
     // Identify the sector numbering scheme.
-    // Keep track of which sectors we've seen.
-    bool seen_sec[MAX_SECS];
-    for (int i = 0; i < MAX_SECS; i++) {
-        seen_sec[i] = false;
-    }
-    seen_sec[cmd.reply[5]] = true;
-
     // Read enough IDs for a few revolutions of the disk.
     for (int i = 0; i < 30; i++) {
-        if (!fd_readid(track->phys_cyl, track->phys_head, track->data_mode,
-                       &cmd)) {
+        if (!track_readid(track)) {
             // FIXME: retry
             printf(" readid failed\n");
-            return false;
-        }
-
-        seen_sec[cmd.reply[5]] = true;
-
-        // Check the other values are consistent with what we saw first time.
-        if ((cmd.reply[3] != track->log_cyl)
-            || (cmd.reply[4] != track->log_head)
-            || (cmd.reply[6] != track->sector_size_code)) {
-            // FIXME: handle better
-            printf(" mixed sector formats\n");
             return false;
         }
 
@@ -358,36 +426,62 @@ static bool probe_track(track_t *track) {
         // then we've seen a full rotation, assuming we didn't miss any)
     }
 
-    // Find the range of sectors involved.
-    // We must have seen at least one sector by this point.
-    int first = MAX_SECS;
-    int last = 0;
-    for (int i = 0; i < MAX_SECS; i++) {
-        if (seen_sec[i]) {
-            if (i < first) {
-                first = i;
-            }
-            if (i > last) {
-                last = i;
-            }
+    // We've now got a sample of the sequence of sectors, e.g.
+    // 7 8 9 1 2 3 4 5 6 7 8 9 1 2 3 4 5 6 7 8 9 1 2 3
+    //
+    // We will find the last instance of the lowest sector:
+    //                                           |
+    //
+    // And then take the sequence until the previous instance of it, which
+    // should hopefully cover a complete rotation:
+    //                         [----------------]
+    //
+    // FIXME: Ideally we would start from the index hole, not from the
+    // lowest-numbered sector, but I don't know how to wait for the index
+    // hole. (Maybe do a readid with a deliberately wrong format?)
+
+    // Find the lowest-numbered sector.
+    int end_sec = MAX_SECS;
+    int end_pos = -1;
+    for (int i = 0; i < track->num_sectors; i++) {
+        const int sec = track->sectors[i].log_sector;
+        if (sec < end_sec) {
+            end_sec = sec;
+            end_pos = i;
         }
     }
 
-    // Check it's contiguous. (We don't handle cases where it isn't.)
-    for (int i = first; i <= last; i++) {
-        if (!seen_sec[i]) {
-            // FIXME: this is a bad idea on dodgy disks
-            printf(" sector numbering not contiguous\n");
+    // Scan backwards until we find it again.
+    int start_pos = end_pos - 1;
+    while (track->sectors[start_pos].log_sector != end_sec) {
+        start_pos--;
+        if (start_pos < 0) {
+            printf(" lowest sector only seen once\n");
             return false;
         }
     }
 
-    track->first_sector = first;
-    track->last_sector = last;
-    track->num_sectors = (last + 1) - first;
+    // FIXME: warn if there are any sector IDs in the sample that don't occur
+    // in the range
 
-    printf(" %dx%d (%d-%d)\n", track->num_sectors, track->sector_size,
-                               track->first_sector, track->last_sector);
+    // Reduce the sector list to just the range we've chosen.
+    track->num_sectors = end_pos - start_pos;
+    memmove(&track->sectors[0], &track->sectors[start_pos],
+            sizeof(track->sectors[0]) * track->num_sectors);
+
+    printf(" %dx%d", track->num_sectors, sector_bytes(track->sector_size_code));
+
+    sector_t *lowest, *highest;
+    bool contiguous;
+    track_scan_sectors(track, &lowest, &highest, &contiguous);
+    if (contiguous) {
+        printf(" %d-%d", lowest->log_sector, highest->log_sector);
+    } else {
+        for (int i = 0; i < track->num_sectors; i++) {
+            printf(" %d", track->sectors[i].log_sector);
+        }
+    }
+    printf("\n");
 
     track->probed = true;
     return true;
@@ -404,52 +498,61 @@ static bool read_track(track_t *track) {
         }
     }
 
-    printf("Reading phys %02d.%d log %02d.%d:",
-           track->phys_cyl, track->phys_head, track->log_cyl, track->log_head);
+    printf("Reading %02d.%d:", track->phys_cyl, track->phys_head);
     fflush(stdout);
 
-    // Try reading the whole track to start with.
-    // If this works, it's a lot faster than reading sector-by-sector.
-    const int track_size = track->sector_size * track->num_sectors;
-    unsigned char track_buf[track_size];
+    sector_t *lowest_sector, *highest_sector;
+    bool contiguous;
+    track_scan_sectors(track, &lowest_sector, &highest_sector, &contiguous);
+
+    const int sector_size = sector_bytes(track->sector_size_code);
+    const int track_size = sector_size * track->num_sectors;
+    unsigned char track_data[track_size];
     bool read_whole_track = false;
-    if (fd_read(track, track->first_sector, track_buf, track_size, &cmd)) {
-        read_whole_track = true;
-        printf(" %d-%d+", track->first_sector, track->last_sector);
+
+    if (contiguous) {
+        // Try reading the whole track to start with.
+        // If this works, it's a lot faster than reading sector-by-sector.
+        // The resulting data will be ordered by *logical* ID.
+        if (fd_read(track, lowest_sector, track_data, track_size, &cmd)) {
+            read_whole_track = true;
+            printf(" %d-%d+",
+                   lowest_sector->log_sector, highest_sector->log_sector);
+        }
     }
 
-    // Put each sector into place.
+    // Get sectors in physical order.
     bool all_ok = true;
-    for (int sec = track->first_sector; sec <= track->last_sector; sec++) {
-        sector_t *sector = &(track->sectors[sec]);
+    for (int i = 0; i < track->num_sectors; i++) {
+        sector_t *sector = &(track->sectors[i]);
 
         if (sector->data != NULL) {
             // Already got this one.
-            printf(" (%d)", sec);
+            printf(" (%d)", sector->log_sector);
             continue;
         }
 
         // Allocate the sector.
-        sector->data = malloc(track->sector_size);
+        sector->data = malloc(sector_size);
         if (sector->data == NULL) {
             die("malloc failed");
         }
 
-        printf(" %d", sec);
+        printf(" %d", sector->log_sector);
         fflush(stdout);
 
         if (read_whole_track) {
-            // We read it as part of the whole track.
-            const int rel_sec = sec - track->first_sector;
+            // We read this sector as part of the whole track.
+            const int rel_sec = sector->log_sector - lowest_sector->log_sector;
             memcpy(sector->data,
-                   track_buf + (track->sector_size * rel_sec),
-                   track->sector_size);
+                   track_data + (sector_size * rel_sec),
+                   sector_size);
             printf("=");
             continue;
         }
 
         // Read a single sector.
-        if (!fd_read(track, sec, sector->data, track->sector_size, &cmd)) {
+        if (!fd_read(track, sector, sector->data, sector_size, &cmd)) {
             // Failed -- throw it away.
             free(sector->data);
             sector->data = NULL;
@@ -483,26 +586,28 @@ static void probe_disk(disk_t *disk) {
     }
 
     track_t *side0 = &(disk->tracks[cyl][0]);
+    sector_t *sec0 = &(side0->sectors[0]);
     track_t *side1 = &(disk->tracks[cyl][1]);
+    sector_t *sec1 = &(side0->sectors[0]);
 
     if (!(side0->probed || side1->probed)) {
         die("Cylinder 2 unreadable on either side");
     } else if (side0->probed && !side1->probed) {
         printf("Single-sided disk\n");
         disk->num_phys_heads = 1;
-    } else if (side0->log_head == 0 && side1->log_head == 0) {
+    } else if (sec0->log_head == 0 && sec1->log_head == 0) {
         printf("Double-sided disk with separate sides\n");
         disk->head_mode = HEADS_SEPARATE;
     } else {
         printf("Double-sided disk\n");
     }
 
-    if (side0->log_cyl * 2 == side0->phys_cyl) {
+    if (sec0->log_cyl * 2 == side0->phys_cyl) {
         printf("Doublestepping required (40T disk in 80T drive)\n");
         disk->cyl_step = 2;
-    } else if (side0->log_cyl == side0->phys_cyl * 2) {
+    } else if (sec0->log_cyl == side0->phys_cyl * 2) {
         die("Can't read this disk (80T disk in 40T drive)");
-    } else if (side0->log_cyl != side0->phys_cyl) {
+    } else if (sec0->log_cyl != side0->phys_cyl) {
         printf("Mismatch between physical and logical cylinders\n");
     }
 }
@@ -529,16 +634,15 @@ static void write_imd_track(const track_t *track, FILE *image) {
     uint8_t cyl_map[track->num_sectors];
     uint8_t head_map[track->num_sectors];
     for (int i = 0; i < track->num_sectors; i++) {
-        // FIXME: this is rubbish -- we don't actually track the physical
-        // sector numbers (because I've not figured out how to detect the start
-        // of the rotation), or any of this per-sector.
+        const sector_t *sector = &(track->sectors[i]);
+
         // FIXME: when the .IMD spec says the sector map lists "the physical ID
         // for each sector", it means "the *logical* ID". (That is, if you
         // image a PC floppy with ImageDisk, it produces 01 02 ... 09 here; if
         // you image a BBC floppy it produces 00 01 .. 09.)
-        sec_map[i] = track->first_sector + i;
-        cyl_map[i] = track->log_cyl;
-        head_map[i] = track->log_head;
+        sec_map[i] = sector->log_sector;
+        cyl_map[i] = sector->log_cyl;
+        head_map[i] = sector->log_head;
 
         if (cyl_map[i] != track->phys_cyl) {
             flags |= IMD_NEED_CYL_MAP;
@@ -565,14 +669,15 @@ static void write_imd_track(const track_t *track, FILE *image) {
         fwrite(head_map, 1, track->num_sectors, image);
     }
 
-    for (int sec = track->first_sector; sec <= track->last_sector; sec++) {
-        const sector_t *sector = &(track->sectors[sec]);
+    const int sector_size = sector_bytes(track->sector_size_code);
+    for (int i = 0; i < track->num_sectors; i++) {
+        const sector_t *sector = &(track->sectors[i]);
         if (sector->data == NULL) {
             fputc(IMD_SDR_UNAVAILABLE, image);
         } else {
             // FIXME: compress if all bytes the same
             fputc(IMD_SDR_NORMAL, image);
-            fwrite(sector->data, 1, track->sector_size, image);
+            fwrite(sector->data, 1, sector_size, image);
         }
     }
 }
@@ -623,10 +728,10 @@ static void process_floppy(void) {
             // FIXME: option to force probe
             if (head > 0) {
                 // Try the mode from the previous head on the same cyl.
-                copy_track_mode(&disk, &(disk.tracks[cyl][head - 1]), track);
+                copy_track_layout(&disk, &(disk.tracks[cyl][head - 1]), track);
             } else if (cyl > 0) {
                 // Try the mode from the previous cyl on the same head.
-                copy_track_mode(&disk, &(disk.tracks[cyl - 1][head]), track);
+                copy_track_layout(&disk, &(disk.tracks[cyl - 1][head]), track);
             }
 
             const int max_tries = 10;
@@ -657,6 +762,7 @@ static void process_floppy(void) {
     if (image != NULL) {
         fclose(image);
     }
+    free_disk(&disk);
     close(dev_fd);
 }
 
