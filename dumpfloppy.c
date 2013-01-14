@@ -293,7 +293,6 @@ static bool fd_read(const track_t *track, const sector_t *sector,
     }
     cmd->cmd_count = 9;
     cmd->flags = FD_RAW_READ | FD_RAW_INTR | FD_RAW_NEED_SEEK;
-    // FIXME: check if Linux is doing an implied seek (i.e. phys == log)
     cmd->track = track->phys_cyl;
     cmd->data = buf;
     cmd->length = buf_size;
