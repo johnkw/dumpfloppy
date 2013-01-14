@@ -27,6 +27,7 @@
 // FIXME: Write an IMD-to-flat tool (i.e. an IMD loader and flat writer)
 //   FIXME: with choice of interleaving in output formats (.dsd, .adl, .adf)
 
+#include "disk.h"
 #include "util.h"
 
 #include <fcntl.h>
@@ -56,43 +57,6 @@ static int drive_selector(int head) {
     return (head << 2) | args.drive;
 }
 
-static int sector_bytes(int code) {
-    return 128 << code;
-}
-
-typedef struct {
-    uint8_t imd_mode;
-    const char *name;
-    int rate; // 0 to 3
-    bool is_fm;
-} data_mode_t;
-
-// Possible data modes for the controller. They will be tried in this order
-// when probing.
-//
-// Following what the .IMD spec says, the rates here are the data transfer rate
-// to the drive -- FM-500k transfers half as much data as MFM-500k owing to the
-// less efficient encoding.
-const data_mode_t DATA_MODES[] = {
-    // 5.25" DD/QD and 3.5" DD drives
-    { 5, "MFM-250k", 2, false },
-    { 2, "FM-250k", 2, true },
-
-    // DD media in 5.25" HD drives
-    { 4, "MFM-300k", 1, false },
-    { 1, "FM-300k", 1, true },
-
-    // 3.5" HD, 5.25" HD and 8" drives
-    { 3, "MFM-500k", 0, false },
-    { 0, "FM-500k", 0, true },
-
-    // 3.5" ED drives
-    { 6, "MFM-1000k", 3, false }, // FIXME: not in IMD spec
-    // Rate 3 for FM isn't allowed.
-
-    { -1, NULL, 0, false }
-};
-
 // Apply a mode specification to a floppy_raw_cmd -- which must contain only
 // one command.
 static void apply_data_mode(const data_mode_t *mode,
@@ -100,121 +64,6 @@ static void apply_data_mode(const data_mode_t *mode,
     cmd->rate = mode->rate;
     if (mode->is_fm) {
         cmd->cmd[0] &= ~0x40;
-    }
-}
-
-typedef struct {
-    uint8_t log_cyl;
-    uint8_t log_head;
-    uint8_t log_sector;
-    unsigned char *data; // NULL if not read yet
-} sector_t;
-
-const sector_t EMPTY_SECTOR = {
-    .log_cyl = 0xFF,
-    .log_head = 0xFF,
-    .log_sector = 0xFF,
-    .data = NULL,
-};
-
-static void init_sector(sector_t *sector) {
-    *sector = EMPTY_SECTOR;
-}
-
-static void free_sector(sector_t *sector) {
-    free(sector->data);
-    sector->data = NULL;
-}
-
-#define MAX_SECS 256
-typedef struct {
-    bool probed;
-    const data_mode_t *data_mode;
-    int phys_cyl;
-    int phys_head;
-    int num_sectors;
-    int sector_size_code; // FDC code
-    sector_t sectors[MAX_SECS]; // indexed by physical sector
-} track_t;
-
-const track_t EMPTY_TRACK = {
-    .probed = false,
-    .data_mode = NULL,
-    .phys_cyl = -1,
-    .phys_head = -1,
-    .num_sectors = -1,
-    .sector_size_code = -1,
-};
-
-static void init_track(int phys_cyl, int phys_head, track_t *track) {
-    *track = EMPTY_TRACK;
-    track->phys_cyl = phys_cyl;
-    track->phys_head = phys_head;
-    for (int i = 0; i < MAX_SECS; i++) {
-        init_sector(&(track->sectors[i]));
-    }
-}
-
-static void free_track(track_t *track) {
-    track->probed = false;
-    track->num_sectors = 0;
-    for (int i = 0; i < MAX_SECS; i++) {
-        free_sector(&(track->sectors[i]));
-    }
-}
-
-#define MAX_CYLS 256
-#define MAX_HEADS 2
-typedef struct {
-    int num_phys_cyls;
-    int num_phys_heads;
-    track_t tracks[MAX_CYLS][MAX_HEADS]; // indexed by physical cyl/head
-    int cyl_step; // how many physical cyls to step for each logical one
-} disk_t;
-
-const disk_t EMPTY_DISK = {
-    .num_phys_cyls = -1,
-    .num_phys_heads = 2,
-    .cyl_step = 1,
-};
-
-static void init_disk(disk_t *disk) {
-    *disk = EMPTY_DISK;
-    for (int cyl = 0; cyl < MAX_CYLS; cyl++) {
-        for (int head = 0; head < MAX_HEADS; head++) {
-            init_track(cyl, head, &(disk->tracks[cyl][head]));
-        }
-    }
-}
-
-static void free_disk(disk_t *disk) {
-    for (int cyl = 0; cyl < MAX_CYLS; cyl++) {
-        for (int head = 0; head < MAX_HEADS; head++) {
-            free_track(&(disk->tracks[cyl][head]));
-        }
-    }
-}
-
-// Copy the layout of a track from another track on the same head.
-static void copy_track_layout(const disk_t *disk,
-                              const track_t *src, track_t *dest) {
-    if (!src->probed) return;
-
-    free_track(dest);
-
-    dest->probed = true;
-    dest->data_mode = src->data_mode;
-    dest->num_sectors = src->num_sectors;
-    dest->sector_size_code = src->sector_size_code;
-
-    int cyl_diff = dest->phys_cyl - src->phys_cyl;
-    for (int i = 0; i < src->num_sectors; i++) {
-        const sector_t *src_sec = &(src->sectors[i]);
-        sector_t *dest_sec = &(dest->sectors[i]);
-
-        dest_sec->log_cyl = src_sec->log_cyl + cyl_diff;
-        dest_sec->log_head = src->phys_head;
-        dest_sec->log_sector = src_sec->log_sector;
     }
 }
 
@@ -343,44 +192,6 @@ static bool track_readid(track_t *track) {
 
     track->num_sectors++;
     return true;
-}
-
-// Find the sectors with the lowest and highest logical IDs in a track,
-// and whether the sectors have contiguous logical IDs.
-static void track_scan_sectors(track_t *track,
-                               sector_t **lowest, sector_t **highest,
-                               bool *contiguous) {
-    bool seen[MAX_SECS];
-    for (int i = 0; i < MAX_SECS; i++) {
-        seen[i] = false;
-    }
-
-    *lowest = NULL;
-    int lowest_id = MAX_SECS;
-    *highest = NULL;
-    int highest_id = 0;
-    for (int i = 0; i < track->num_sectors; i++) {
-        sector_t *sector = &(track->sectors[i]);
-        const int id = sector->log_sector;
-
-        seen[sector->log_sector] = true;
-
-        if (id < lowest_id) {
-            lowest_id = id;
-            *lowest = sector;
-        }
-        if (id > highest_id) {
-            highest_id = id;
-            *highest = sector;
-        }
-    }
-
-    *contiguous = true;
-    for (int i = lowest_id; i < highest_id; i++) {
-        if (!seen[i]) {
-            *contiguous = false;
-        }
-    }
 }
 
 static bool probe_track(track_t *track) {
@@ -630,10 +441,6 @@ static void write_imd_track(const track_t *track, FILE *image) {
     for (int i = 0; i < track->num_sectors; i++) {
         const sector_t *sector = &(track->sectors[i]);
 
-        // FIXME: when the .IMD spec says the sector map lists "the physical ID
-        // for each sector", it means "the *logical* ID". (That is, if you
-        // image a PC floppy with ImageDisk, it produces 01 02 ... 09 here; if
-        // you image a BBC floppy it produces 00 01 .. 09.)
         sec_map[i] = sector->log_sector;
         cyl_map[i] = sector->log_cyl;
         head_map[i] = sector->log_head;
