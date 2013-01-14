@@ -53,11 +53,6 @@ static int sector_bytes(int code) {
     return 128 << code;
 }
 
-typedef enum {
-    HEADS_NORMAL, // physical == logical
-    HEADS_SEPARATE, // all are logical head 0
-} head_mode_t;
-
 typedef struct {
     uint8_t imd_mode;
     const char *name;
@@ -168,14 +163,12 @@ typedef struct {
     int num_phys_heads;
     track_t tracks[MAX_CYLS][MAX_HEADS]; // indexed by physical cyl/head
     int cyl_step; // how many physical cyls to step for each logical one
-    head_mode_t head_mode;
 } disk_t;
 
 const disk_t EMPTY_DISK = {
     .num_phys_cyls = -1,
     .num_phys_heads = 2,
     .cyl_step = 1,
-    .head_mode = HEADS_NORMAL,
 };
 
 static void init_disk(disk_t *disk) {
@@ -195,6 +188,7 @@ static void free_disk(disk_t *disk) {
     }
 }
 
+// Copy the layout of a track from another track on the same head.
 static void copy_track_layout(const disk_t *disk,
                               const track_t *src, track_t *dest) {
     if (!src->probed) return;
@@ -212,16 +206,7 @@ static void copy_track_layout(const disk_t *disk,
         sector_t *dest_sec = &(dest->sectors[i]);
 
         dest_sec->log_cyl = src_sec->log_cyl + cyl_diff;
-        // FIXME: If we only ever copied from the same head, this wouldn't be
-        // necessary
-        switch (disk->head_mode) {
-        case HEADS_NORMAL:
-            dest_sec->log_head = dest->phys_head;
-            break;
-        case HEADS_SEPARATE:
-            dest_sec->log_head = 0;
-            break;
-        }
+        dest_sec->log_head = src->phys_head;
         dest_sec->log_sector = src_sec->log_sector;
     }
 }
@@ -603,7 +588,6 @@ static void probe_disk(disk_t *disk) {
         disk->num_phys_heads = 1;
     } else if (sec0->log_head == 0 && sec1->log_head == 0) {
         printf("Double-sided disk with separate sides\n");
-        disk->head_mode = HEADS_SEPARATE;
     } else {
         printf("Double-sided disk\n");
     }
@@ -744,10 +728,7 @@ static void process_floppy(void) {
             track_t *track = &(disk.tracks[cyl][head]);
 
             // FIXME: option to force probe
-            if (head > 0) {
-                // Try the mode from the previous head on the same cyl.
-                copy_track_layout(&disk, &(disk.tracks[cyl][head - 1]), track);
-            } else if (cyl > 0) {
+            if (cyl > 0) {
                 // Try the mode from the previous cyl on the same head.
                 copy_track_layout(&disk, &(disk.tracks[cyl - 1][head]), track);
             }
