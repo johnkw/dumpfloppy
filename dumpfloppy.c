@@ -28,6 +28,7 @@
 #include <unistd.h>
 
 static struct args {
+    bool always_probe;
     int drive;
     int tracks;
     const char *image_filename;
@@ -724,9 +725,10 @@ static void process_floppy(void) {
         for (int head = 0; head < disk.num_phys_heads; head++) {
             track_t *track = &(disk.tracks[cyl][head]);
 
-            // FIXME: option to force probe
-            if (cyl > 0) {
-                // Try the mode from the previous cyl on the same head.
+            if (args.always_probe) {
+                // Don't assume a layout.
+            } else if (cyl > 0) {
+                // Try the layout of the previous cyl on the same head.
                 copy_track_layout(&disk, &(disk.tracks[cyl - 1][head]), track);
             }
 
@@ -764,6 +766,7 @@ static void process_floppy(void) {
 
 static void usage(void) {
     fprintf(stderr, "usage: dumpfloppy [OPTION]... [IMAGE-FILE]\n");
+    fprintf(stderr, "  -a         probe each track before reading\n");
     fprintf(stderr, "  -d NUM     drive number to read from (default 0)\n");
     fprintf(stderr, "  -t TRACKS  drive has TRACKS tracks (default autodetect)\n");
     // FIXME: -h HEAD     read single-sided image from head HEAD
@@ -772,15 +775,19 @@ static void usage(void) {
 
 int main(int argc, char **argv) {
     dev_fd = -1;
+    args.always_probe = false;
     args.drive = 0;
     args.tracks = -1;
     args.image_filename = NULL;
 
     while (true) {
-        int opt = getopt(argc, argv, "d:t:");
+        int opt = getopt(argc, argv, "ad:t:");
         if (opt == -1) break;
 
         switch (opt) {
+        case 'a':
+            args.always_probe = true;
+            break;
         case 'd':
             args.drive = atoi(optarg);
             break;
