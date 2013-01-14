@@ -27,11 +27,11 @@
 // FIXME: Write an IMD-to-flat tool (i.e. an IMD loader and flat writer)
 //   FIXME: with choice of interleaving in output formats (.dsd, .adl, .adf)
 
-#include <errno.h>
+#include "util.h"
+
 #include <fcntl.h>
 #include <linux/fd.h>
 #include <linux/fdreg.h>
-#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -51,17 +51,6 @@ static struct args {
     const char *image_filename;
 } args;
 static int dev_fd;
-
-static void die(const char *format, ...) {
-    va_list ap;
-    va_start(ap, format);
-    vfprintf(stderr, format, ap);
-    va_end(ap);
-    fputc('\n', stderr);
-    exit(1);
-}
-#define die_errno(format, ...) \
-    die(format ": %s", ##__VA_ARGS__, strerror(errno))
 
 static int drive_selector(int head) {
     return (head << 2) | args.drive;
