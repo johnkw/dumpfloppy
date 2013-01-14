@@ -65,10 +65,12 @@ typedef struct {
     bool is_fm;
 } data_mode_t;
 
+// Possible data modes for the controller. They will be tried in this order
+// when probing.
+//
 // Following what the .IMD spec says, the rates here are the data transfer rate
 // to the drive -- FM-500k transfers half as much data as MFM-500k owing to the
 // less efficient encoding.
-// FIXME: index this array by imd_mode, and have a separate probe list
 const data_mode_t DATA_MODES[] = {
     // 5.25" DD/QD and 3.5" DD drives
     { 5, "MFM-250k", 2, false },
