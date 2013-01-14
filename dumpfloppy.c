@@ -29,6 +29,7 @@
 
 static struct args {
     int drive;
+    int tracks;
     const char *image_filename;
 } args;
 static int dev_fd;
@@ -694,6 +695,14 @@ static void process_floppy(void) {
         die_errno("cannot open %s", dev_filename);
     }
 
+    // Get BIOS parameters for drive.
+    // These aren't necessarily accurate (e.g. there's no BIOS type for an
+    // 80-track 5.25" DD drive)...
+    struct floppy_drive_params drive_params;
+    if (ioctl(dev_fd, FDGETDRVPRM, &drive_params) < 0) {
+        die_errno("cannot get drive parameters");
+    }
+
     // Reset the controller
     if (ioctl(dev_fd, FDRESET, (void *) FD_RESET_ALWAYS) < 0) {
         die_errno("cannot reset controller");
@@ -709,7 +718,11 @@ static void process_floppy(void) {
     disk_t disk;
     init_disk(&disk);
 
-    disk.num_phys_cyls = 80; // FIXME: option for this
+    if (args.tracks == -1) {
+        disk.num_phys_cyls = drive_params.tracks;
+    } else {
+        disk.num_phys_cyls = args.tracks;
+    }
     disk.num_phys_heads = 2;
 
     probe_disk(&disk);
@@ -770,24 +783,29 @@ static void process_floppy(void) {
 }
 
 static void usage(void) {
-    fprintf(stderr, "usage: dumpfloppy [-d NUM] [IMAGE-FILE]\n");
+    fprintf(stderr, "usage: dumpfloppy [OPTION]... [IMAGE-FILE]\n");
     fprintf(stderr, "  -d NUM     drive number to read from (default 0)\n");
-    // FIXME: -t COUNT    drive has COUNT tracks
+    fprintf(stderr, "  -t TRACKS  drive has TRACKS tracks (default autodetect)\n");
+    // FIXME: -h HEAD     read single-sided image from head HEAD
     // FIXME: -S SEC      ignore sectors with logical ID SEC (for RM disks)
 }
 
 int main(int argc, char **argv) {
     dev_fd = -1;
     args.drive = 0;
+    args.tracks = -1;
     args.image_filename = NULL;
 
     while (true) {
-        int opt = getopt(argc, argv, "d:");
+        int opt = getopt(argc, argv, "d:t:");
         if (opt == -1) break;
 
         switch (opt) {
         case 'd':
             args.drive = atoi(optarg);
+            break;
+        case 't':
+            args.tracks = atoi(optarg);
             break;
         default:
             usage();
