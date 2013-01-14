@@ -27,9 +27,11 @@
 #include <time.h>
 #include <unistd.h>
 
+static struct args {
+    int drive;
+    const char *image_filename;
+} args;
 static int dev_fd;
-static int drive;
-static const char *image_filename;
 
 static void die(const char *format, ...) {
     va_list ap;
@@ -43,7 +45,7 @@ static void die(const char *format, ...) {
     die(format ": %s", ##__VA_ARGS__, strerror(errno))
 
 static int drive_selector(int head) {
-    return (head << 2) | drive;
+    return (head << 2) | args.drive;
 }
 
 static int sector_bytes(int code) {
@@ -685,7 +687,7 @@ static void write_imd_track(const track_t *track, FILE *image) {
 
 static void process_floppy(void) {
     char dev_filename[] = "/dev/fdX";
-    dev_filename[7] = '0' + drive;
+    dev_filename[7] = '0' + args.drive;
 
     dev_fd = open(dev_filename, O_ACCMODE | O_NONBLOCK);
     if (dev_fd == -1) {
@@ -713,10 +715,10 @@ static void process_floppy(void) {
     probe_disk(&disk);
 
     FILE *image = NULL;
-    if (image_filename != NULL) {
-        image = fopen(image_filename, "wb");
+    if (args.image_filename != NULL) {
+        image = fopen(args.image_filename, "wb");
         if (image == NULL) {
-            die_errno("cannot open %s", image_filename);
+            die_errno("cannot open %s", args.image_filename);
         }
 
         write_imd_header(image);
@@ -776,8 +778,8 @@ static void usage(void) {
 
 int main(int argc, char **argv) {
     dev_fd = -1;
-    drive = 0;
-    image_filename = NULL;
+    args.drive = 0;
+    args.image_filename = NULL;
 
     while (true) {
         int opt = getopt(argc, argv, "d:");
@@ -785,7 +787,7 @@ int main(int argc, char **argv) {
 
         switch (opt) {
         case 'd':
-            drive = atoi(optarg);
+            args.drive = atoi(optarg);
             break;
         default:
             usage();
@@ -796,7 +798,7 @@ int main(int argc, char **argv) {
     if (optind == argc) {
         // No image file.
     } else if (optind + 1 == argc) {
-        image_filename = argv[optind];
+        args.image_filename = argv[optind];
     } else {
         usage();
         return 0;
