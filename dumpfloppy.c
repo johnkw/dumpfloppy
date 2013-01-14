@@ -390,7 +390,6 @@ static bool probe_track(track_t *track) {
     for (int i = 0; ; i++) {
         if (DATA_MODES[i].name == NULL) {
             printf(" unknown data mode\n");
-            // FIXME: retry
             return false;
         }
 
@@ -406,7 +405,6 @@ static bool probe_track(track_t *track) {
     // Read enough IDs for a few revolutions of the disk.
     for (int i = 0; i < 30; i++) {
         if (!track_readid(track)) {
-            // FIXME: retry
             printf(" readid failed\n");
             return false;
         }
