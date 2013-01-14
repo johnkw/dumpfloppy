@@ -217,6 +217,7 @@ static void copy_track_layout(const disk_t *disk,
             dest_sec->log_head = 0;
             break;
         }
+        dest_sec->log_sector = src_sec->log_sector;
     }
 }
 
