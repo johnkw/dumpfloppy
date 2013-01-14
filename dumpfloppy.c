@@ -446,7 +446,7 @@ static bool probe_track(track_t *track) {
     int end_pos = -1;
     for (int i = 0; i < track->num_sectors; i++) {
         const int sec = track->sectors[i].log_sector;
-        if (sec < end_sec) {
+        if (sec <= end_sec) {
             end_sec = sec;
             end_pos = i;
         }
