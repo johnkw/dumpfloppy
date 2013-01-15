@@ -354,15 +354,14 @@ static bool read_track(track_t *track) {
     for (int i = 0; i < track->num_sectors; i++) {
         sector_t *sector = &(track->sectors[i]);
 
-        if (sector->data != NULL) {
+        if (sector->status == SECTOR_GOOD) {
             // Already got this one.
             printf("    ");
             continue;
         }
 
-        // Allocate the sector.
-        sector->data = malloc(sector_size);
-        if (sector->data == NULL) {
+        uint8_t *data = malloc(sector_size);
+        if (data == NULL) {
             die("malloc failed");
         }
 
@@ -370,24 +369,29 @@ static bool read_track(track_t *track) {
         fflush(stdout);
 
         if (read_whole_track) {
-            // We read this sector as part of the whole track.
+            // We read this sector as part of the whole track. Success!
             const int rel_sec = sector->log_sector - lowest_sector->log_sector;
-            memcpy(sector->data,
-                   track_data + (sector_size * rel_sec),
-                   sector_size);
+            memcpy(data, track_data + (sector_size * rel_sec), sector_size);
+
+            sector->status = SECTOR_GOOD;
+            sector->data = data;
+
             printf("*");
             continue;
         }
 
         // Read a single sector.
-        if (!fd_read(track, sector, sector->data, sector_size, &cmd)) {
+        if (!fd_read(track, sector, data, sector_size, &cmd)) {
             // Failed -- throw it away.
-            free(sector->data);
-            sector->data = NULL;
+            free(data);
 
             printf("-");
             all_ok = false;
         } else {
+            // Success!
+            sector->status = SECTOR_GOOD;
+            sector->data = data;
+
             printf("+");
         }
         fflush(stdout);

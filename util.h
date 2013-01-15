@@ -22,6 +22,7 @@
 #define UTIL_H
 
 #include <errno.h>
+#include <stddef.h>
 #include <string.h>
 
 void die(const char *format, ...);

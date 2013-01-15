@@ -54,6 +54,7 @@ const data_mode_t DATA_MODES[] = {
 };
 
 static const sector_t EMPTY_SECTOR = {
+    .status = SECTOR_MISSING,
     .log_cyl = 0xFF,
     .log_head = 0xFF,
     .log_sector = 0xFF,

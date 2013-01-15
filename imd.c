@@ -54,8 +54,11 @@ void write_imd_header(const disk_t *disk, FILE *image) {
 
 #define IMD_NEED_CYL_MAP 0x80
 #define IMD_NEED_HEAD_MAP 0x40
-#define IMD_SDR_UNAVAILABLE 0x00
-#define IMD_SDR_NORMAL 0x01
+// These Sector Data Record flags are combined by +, not |.
+#define IMD_SDR_DATA 0x01
+#define IMD_SDR_IS_COMPRESSED 0x01
+#define IMD_SDR_IS_DELETED 0x02
+#define IMD_SDR_IS_ERROR 0x04
 void write_imd_track(const track_t *track, FILE *image) {
     uint8_t flags = 0;
 
@@ -97,11 +100,22 @@ void write_imd_track(const track_t *track, FILE *image) {
     const int sector_size = sector_bytes(track->sector_size_code);
     for (int i = 0; i < track->num_sectors; i++) {
         const sector_t *sector = &(track->sectors[i]);
-        if (sector->data == NULL) {
-            fputc(IMD_SDR_UNAVAILABLE, image);
-        } else {
-            // FIXME: compress if all bytes the same
-            fputc(IMD_SDR_NORMAL, image);
+
+        uint8_t type = 0;
+        switch (sector->status) {
+        case SECTOR_MISSING:
+            break;
+        case SECTOR_BAD:
+            type = IMD_SDR_DATA + IMD_SDR_IS_ERROR;
+            break;
+        case SECTOR_GOOD:
+            type = IMD_SDR_DATA;
+            break;
+        }
+
+        // FIXME: compress if all bytes the same
+        fputc(type, image);
+        if (sector->data != NULL) {
             fwrite(sector->data, 1, sector_size, image);
         }
     }

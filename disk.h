@@ -56,11 +56,18 @@ typedef struct {
 // (The last has name == NULL.)
 extern const data_mode_t DATA_MODES[];
 
+typedef enum {
+    SECTOR_MISSING = 0,
+    SECTOR_BAD,
+    SECTOR_GOOD
+} sector_status_t;
+
 typedef struct {
+    sector_status_t status;
     uint8_t log_cyl;
     uint8_t log_head;
     uint8_t log_sector;
-    unsigned char *data; // NULL if not read yet; allocate with malloc
+    uint8_t *data; // NULL if not read yet; allocate with malloc
 } sector_t;
 
 void init_sector(sector_t *sector);
