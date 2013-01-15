@@ -46,6 +46,7 @@ static struct args {
     bool always_probe;
     int drive;
     int tracks;
+    int cyl_scale;
     const char *image_filename;
 } args;
 static int dev_fd;
@@ -97,7 +98,7 @@ static bool fd_readid(const track_t *track, struct floppy_raw_cmd *cmd) {
     cmd->cmd[1] = drive_selector(track->phys_head);
     cmd->cmd_count = 2;
     cmd->flags = FD_RAW_INTR | FD_RAW_NEED_SEEK;
-    cmd->track = track->phys_cyl;
+    cmd->track = track->phys_cyl * args.cyl_scale;
     apply_data_mode(track->data_mode, cmd);
 
     if (ioctl(dev_fd, FDRAWCMD, cmd) < 0) {
@@ -146,7 +147,7 @@ static bool fd_read(const track_t *track, const sector_t *sector,
     }
     cmd->cmd_count = 9;
     cmd->flags = FD_RAW_READ | FD_RAW_INTR | FD_RAW_NEED_SEEK;
-    cmd->track = track->phys_cyl;
+    cmd->track = track->phys_cyl * args.cyl_scale;
     cmd->data = buf;
     cmd->length = buf_size;
     apply_data_mode(track->data_mode, cmd);
@@ -425,7 +426,7 @@ static void probe_disk(disk_t *disk) {
 
     if (sec0->log_cyl * 2 == side0->phys_cyl) {
         printf("Doublestepping required (40T disk in 80T drive)\n");
-        disk->cyl_step = 2;
+        args.cyl_scale = 2;
     } else if (sec0->log_cyl == side0->phys_cyl * 2) {
         die("Can't read this disk (80T disk in 40T drive)");
     } else if (sec0->log_cyl != side0->phys_cyl) {
@@ -474,6 +475,7 @@ static void process_floppy(void) {
     disk.num_phys_heads = 2;
 
     probe_disk(&disk);
+    disk.num_phys_cyls /= args.cyl_scale;
 
     FILE *image = NULL;
     if (args.image_filename != NULL) {
@@ -485,7 +487,7 @@ static void process_floppy(void) {
         write_imd_header(&disk, image);
     }
 
-    for (int cyl = 0; cyl < disk.num_phys_cyls; cyl += disk.cyl_step) {
+    for (int cyl = 0; cyl < disk.num_phys_cyls; cyl++) {
         for (int head = 0; head < disk.num_phys_heads; head++) {
             track_t *track = &(disk.tracks[cyl][head]);
 
@@ -547,6 +549,7 @@ int main(int argc, char **argv) {
     args.always_probe = false;
     args.drive = 0;
     args.tracks = -1;
+    args.cyl_scale = 1;
     args.image_filename = NULL;
 
     while (true) {
