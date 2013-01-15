@@ -191,15 +191,28 @@ static sector_t *track_readid(track_t *track) {
     return sector;
 }
 
+// Identify the data mode and sector layout of a track.
 static bool probe_track(track_t *track) {
     free_track(track);
 
     printf("Probing %02d.%d:", track->phys_cyl, track->phys_head);
     fflush(stdout);
 
-    // Identify the data mode (assuming there's only one; we don't handle disks
-    // with multiple modes per track).
-    // Try all the possible modes until we can read a sector ID.
+    // We want to make sure that we start reading sector IDs from the index
+    // hole. However, there isn't really a good way of finding out where the
+    // hole is -- other than getting the controller to do a failing read,
+    // where it'll give up when it sees the index hole for the Nth time.
+    //
+    // So we need to ensure that we've done at least one readid that failed
+    // before we have a successful one -- that way, the successful one will
+    // definitely be at the start of the track!
+    //
+    // The first readid we'll do in the loop below will be with DATA_MODES[0],
+    // so do a different one to ensure that at least one of them will fail.
+    track->data_mode = &DATA_MODES[1];
+    track_readid(track);
+
+    // Try all the possible data modes until we can read a sector ID.
     track->num_sectors = 0;
     track->sector_size_code = -1;
     for (int i = 0; ; i++) {
@@ -210,19 +223,21 @@ static bool probe_track(track_t *track) {
 
         track->data_mode = &DATA_MODES[i];
         if (track_readid(track) != NULL) {
+            // This succeeded -- so we're at the start of the track
+            // (see above).
             printf(" %s", track->data_mode->name);
             fflush(stdout);
             break;
         }
     }
 
-    // Identify the sector numbering scheme.
     // Track how many times we've seen each logical sector.
     int seen_secs[MAX_SECS];
     for (int i = 0; i < MAX_SECS; i++) {
         seen_secs[i] = 0;
     }
 
+    // Read sector IDs until we've seen the complete sequence several times.
     int count = 0;
     while (true) {
         sector_t *sector = track_readid(track);
@@ -253,54 +268,37 @@ static bool probe_track(track_t *track) {
         }
     }
 
-    // We've now got a sample of the sequence of sectors, e.g.
-    // 7 8 9 1 2 3 4 5 6 7 8 9 1 2 3 4 5 6 7 8 9 1 2 3
-    //
-    // We will find the last instance of the lowest sector:
-    //                                           |
-    //
-    // And then take the sequence until the previous instance of it, which
-    // should hopefully cover a complete rotation:
-    //                         [----------------]
-    //
-    // FIXME: Ideally we would start from the index hole, not from the
-    // lowest-numbered sector, but I don't know how to wait for the index
-    // hole. (Maybe do a readid with a deliberately wrong format?)
-
-    // Find the lowest-numbered sector.
-    int end_sec = MAX_SECS;
-    int end_pos = -1;
-    for (int i = 0; i < track->num_sectors; i++) {
-        const int sec = track->sectors[i].log_sector;
-        if (sec <= end_sec) {
-            end_sec = sec;
-            end_pos = i;
-        }
-    }
-
-    // Scan backwards until we find it again.
-    int start_pos = end_pos - 1;
-    while (track->sectors[start_pos].log_sector != end_sec) {
-        start_pos--;
-        if (start_pos < 0) {
-            printf(" lowest sector only seen once\n");
+    // Find where the first sector repeats, and cut the sequence off there.
+    int end_pos = 1;
+    while (!same_sector_addr(&(track->sectors[0]),
+                             &(track->sectors[end_pos]))) {
+        end_pos++;
+        if (end_pos == track->num_sectors) {
+            printf(" couldn't find repeat of first sector\n");
             return false;
         }
     }
 
-    // FIXME: warn if there are any sector IDs in the sample that don't occur
-    // in the range
+    // Check that the sequence repeated itself consistently after that.
+    // If we're missing sectors, this has a reasonable chance of spotting it.
+    // FIXME: There should be an option to override this for *really* dodgy
+    // disks, and just assume the sectors are in order.
+    for (int pos = end_pos; pos < track->num_sectors; pos++) {
+        if (!same_sector_addr(&(track->sectors[pos % end_pos]),
+                              &(track->sectors[pos]))) {
+            printf("  sector sequence did not repeat consistently\n");
+            return false;
+        }
+    }
 
-    // Reduce the sector list to just the range we've chosen.
-    track->num_sectors = end_pos - start_pos;
-    memmove(&track->sectors[0], &track->sectors[start_pos],
-            sizeof(track->sectors[0]) * track->num_sectors);
+    // Cut the sequence to length.
+    track->num_sectors = end_pos;
 
-    printf(" %dx%d", track->num_sectors, sector_bytes(track->sector_size_code));
-
+    // Show what we found.
     sector_t *lowest, *highest;
     bool contiguous;
     track_scan_sectors(track, &lowest, &highest, &contiguous);
+    printf(" %dx%d", track->num_sectors, sector_bytes(track->sector_size_code));
     if (contiguous) {
         printf(" %d-%d", lowest->log_sector, highest->log_sector);
     } else {

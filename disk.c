@@ -192,3 +192,10 @@ void track_scan_sectors(track_t *track,
         }
     }
 }
+
+bool same_sector_addr(const sector_t *a, const sector_t *b) {
+    if (a->log_cyl != b->log_cyl) return false;
+    if (a->log_head != b->log_head) return false;
+    if (a->log_sector != b->log_sector) return false;
+    return true;
+}

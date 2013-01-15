@@ -106,4 +106,7 @@ void track_scan_sectors(track_t *track,
                         sector_t **lowest, sector_t **highest,
                         bool *contiguous);
 
+// Return whether two sectors have the same logical address.
+bool same_sector_addr(const sector_t *a, const sector_t *b);
+
 #endif
