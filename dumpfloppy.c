@@ -382,6 +382,7 @@ static bool read_track(track_t *track) {
             memcpy(data, track_data + (sector_size * rel_sec), sector_size);
 
             sector->status = SECTOR_GOOD;
+            free(sector->data);
             sector->data = data;
 
             printf("*");
@@ -398,6 +399,7 @@ static bool read_track(track_t *track) {
         } else {
             // Success!
             sector->status = SECTOR_GOOD;
+            free(sector->data);
             sector->data = data;
 
             // 0x40 is Control Mark -- a deleted sector was read.
