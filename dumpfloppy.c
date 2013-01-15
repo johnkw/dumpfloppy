@@ -190,6 +190,7 @@ static sector_t *track_readid(track_t *track) {
     }
 
     sector_t *sector = &(track->sectors[track->num_sectors]);
+    free_sector(sector);
     sector->log_cyl = cmd.reply[3];
     sector->log_head = cmd.reply[4];
     sector->log_sector = cmd.reply[5];

@@ -67,6 +67,7 @@ void init_sector(sector_t *sector) {
 }
 
 void free_sector(sector_t *sector) {
+    sector->status = SECTOR_MISSING;
     free(sector->data);
     sector->data = NULL;
 }
