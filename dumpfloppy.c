@@ -24,9 +24,6 @@
       http://www.fdutils.linux.lu/disk-id.html
 */
 
-// FIXME: Write an IMD-to-flat tool (i.e. an IMD loader and flat writer)
-//   FIXME: with choice of interleaving in output formats (.dsd, .adl, .adf)
-
 #include "disk.h"
 #include "imd.h"
 #include "util.h"

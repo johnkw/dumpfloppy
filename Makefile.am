@@ -1,14 +1,22 @@
 bin_PROGRAMS = \
-	dumpfloppy
+	dumpfloppy \
+	imdcat
 
-dumpfloppy_SOURCES = \
+common_sources = \
 	disk.c \
 	disk.h \
-	dumpfloppy.c \
 	imd.c \
 	imd.h \
 	util.c \
 	util.h
 
-dumpfloppy_CPPFLAGS = \
+dumpfloppy_SOURCES = \
+	$(common_sources) \
+	dumpfloppy.c
+
+imdcat_SOURCES = \
+	$(common_sources) \
+	imdcat.c
+
+AM_CPPFLAGS = \
 	-std=gnu99 -Wall -g
