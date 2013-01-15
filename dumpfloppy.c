@@ -75,7 +75,8 @@ static void apply_data_mode(const data_mode_t *mode,
 static void fd_recalibrate(struct floppy_raw_cmd *cmd) {
     memset(cmd, 0, sizeof *cmd);
 
-    cmd->cmd[0] = FD_RECALIBRATE;
+    // 0x07 is RECALIBRATE.
+    cmd->cmd[0] = 0x07;
     cmd->cmd[1] = drive_selector(0);
     cmd->cmd_count = 2;
     cmd->flags = FD_RAW_INTR;
