@@ -23,7 +23,7 @@
 
 #include <stdio.h>
 
-void write_imd_header(FILE *image);
+void write_imd_header(const disk_t *disk, FILE *image);
 void write_imd_track(const track_t *track, FILE *image);
 
 #endif

@@ -83,6 +83,8 @@ void free_track(track_t *track);
 #define MAX_CYLS 256
 #define MAX_HEADS 2
 typedef struct {
+    char *comment; // allocate with malloc
+    int comment_len; // in bytes, not including terminator
     int num_phys_cyls;
     int num_phys_heads;
     track_t tracks[MAX_CYLS][MAX_HEADS]; // indexed by physical cyl/head
@@ -91,6 +93,9 @@ typedef struct {
 
 void init_disk(disk_t *disk);
 void free_disk(disk_t *disk);
+
+// Create a ImageDisk-style timestamp comment.
+void make_disk_comment(const char *program, const char *version, disk_t *disk);
 
 // Copy the layout of a track from another track on the same head.
 void copy_track_layout(const disk_t *disk, const track_t *src, track_t *dest);

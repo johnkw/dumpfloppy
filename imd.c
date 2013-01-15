@@ -22,18 +22,13 @@
 #include "imd.h"
 
 #include <stdio.h>
-#include <time.h>
 
 #define IMD_END_OF_COMMENT 0x1A
 
-void write_imd_header(FILE *image) {
-    time_t now = time(NULL);
-    const struct tm *local = localtime(&now);
-
-    fprintf(image, "IMD 1.18-%s-%s: %02d/%02d/%04d %02d:%02d:%02d\r\n",
-            PACKAGE_NAME, PACKAGE_VERSION,
-            local->tm_mday, local->tm_mon + 1, local->tm_year + 1900,
-            local->tm_hour, local->tm_min, local->tm_sec);
+void write_imd_header(const disk_t *disk, FILE *image) {
+    if (disk->comment != NULL) {
+        fwrite(disk->comment, 1, disk->comment_len, image);
+    }
     fputc(IMD_END_OF_COMMENT, image);
 }
 

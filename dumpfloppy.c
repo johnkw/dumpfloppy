@@ -453,6 +453,7 @@ static void process_floppy(void) {
 
     disk_t disk;
     init_disk(&disk);
+    make_disk_comment(PACKAGE_NAME, PACKAGE_VERSION, &disk);
 
     if (args.tracks == -1) {
         disk.num_phys_cyls = drive_params.tracks;
@@ -470,7 +471,7 @@ static void process_floppy(void) {
             die_errno("cannot open %s", args.image_filename);
         }
 
-        write_imd_header(image);
+        write_imd_header(&disk, image);
     }
 
     for (int cyl = 0; cyl < disk.num_phys_cyls; cyl += disk.cyl_step) {
