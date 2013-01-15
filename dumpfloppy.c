@@ -28,6 +28,7 @@
 //   FIXME: with choice of interleaving in output formats (.dsd, .adl, .adf)
 
 #include "disk.h"
+#include "imd.h"
 #include "util.h"
 
 #include <fcntl.h>
@@ -42,7 +43,6 @@
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <time.h>
 #include <unistd.h>
 
 static struct args {
@@ -419,72 +419,6 @@ static void probe_disk(disk_t *disk) {
         die("Can't read this disk (80T disk in 40T drive)");
     } else if (sec0->log_cyl != side0->phys_cyl) {
         printf("Mismatch between physical and logical cylinders\n");
-    }
-}
-
-static void write_imd_header(FILE *image) {
-    time_t now = time(NULL);
-    const struct tm *local = localtime(&now);
-
-    fprintf(image, "IMD 1.18-%s-%s: %02d/%02d/%04d %02d:%02d:%02d\n",
-            PACKAGE_NAME, PACKAGE_VERSION,
-            local->tm_mday, local->tm_mon + 1, local->tm_year + 1900,
-            local->tm_hour, local->tm_min, local->tm_sec);
-    fputc(0x1A, image);
-}
-
-#define IMD_NEED_CYL_MAP 0x80
-#define IMD_NEED_HEAD_MAP 0x40
-#define IMD_SDR_UNAVAILABLE 0x00
-#define IMD_SDR_NORMAL 0x01
-static void write_imd_track(const track_t *track, FILE *image) {
-    uint8_t flags = 0;
-
-    uint8_t sec_map[track->num_sectors];
-    uint8_t cyl_map[track->num_sectors];
-    uint8_t head_map[track->num_sectors];
-    for (int i = 0; i < track->num_sectors; i++) {
-        const sector_t *sector = &(track->sectors[i]);
-
-        sec_map[i] = sector->log_sector;
-        cyl_map[i] = sector->log_cyl;
-        head_map[i] = sector->log_head;
-
-        if (cyl_map[i] != track->phys_cyl) {
-            flags |= IMD_NEED_CYL_MAP;
-        }
-        if (head_map[i] != track->phys_head) {
-            flags |= IMD_NEED_HEAD_MAP;
-        }
-    }
-
-    const uint8_t header[] = {
-        track->data_mode->imd_mode,
-        track->phys_cyl,
-        flags | track->phys_head,
-        track->num_sectors,
-        track->sector_size_code,
-    };
-    fwrite(header, 1, 5, image);
-
-    fwrite(sec_map, 1, track->num_sectors, image);
-    if (flags & IMD_NEED_CYL_MAP) {
-        fwrite(cyl_map, 1, track->num_sectors, image);
-    }
-    if (flags & IMD_NEED_HEAD_MAP) {
-        fwrite(head_map, 1, track->num_sectors, image);
-    }
-
-    const int sector_size = sector_bytes(track->sector_size_code);
-    for (int i = 0; i < track->num_sectors; i++) {
-        const sector_t *sector = &(track->sectors[i]);
-        if (sector->data == NULL) {
-            fputc(IMD_SDR_UNAVAILABLE, image);
-        } else {
-            // FIXME: compress if all bytes the same
-            fputc(IMD_SDR_NORMAL, image);
-            fwrite(sector->data, 1, sector_size, image);
-        }
     }
 }
 

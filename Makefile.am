@@ -5,6 +5,8 @@ dumpfloppy_SOURCES = \
 	disk.c \
 	disk.h \
 	dumpfloppy.c \
+	imd.c \
+	imd.h \
 	util.c \
 	util.h
 
