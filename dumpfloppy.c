@@ -521,6 +521,7 @@ static void process_floppy(void) {
         write_imd_header(&disk, image);
     }
 
+    // FIXME: retry disk if not complete
     for (int cyl = 0; cyl < disk.num_phys_cyls; cyl++) {
         for (int head = 0; head < disk.num_phys_heads; head++) {
             track_t *track = &(disk.tracks[cyl][head]);
@@ -538,9 +539,7 @@ static void process_floppy(void) {
 
                 if (try == max_tries) {
                     // Tried too many times; give up.
-                    // FIXME: Don't die -- go on to the next track
-                    // (and then eventually retry the disk, if required).
-                    die("Track failed to read after retrying");
+                    break;
                 }
 
                 if (read_track(track)) {
