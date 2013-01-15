@@ -514,10 +514,10 @@ static void process_floppy(void) {
                     break;
                 }
 
-                // Failed; reprobe and try again.
-                // FIXME: Only reprobe if we haven't yet read any data from the
-                // track. If we have, then we don't want to lose it!
-                track->status = TRACK_UNKNOWN;
+                if (track->status == TRACK_GUESSED) {
+                    // Maybe we guessed wrong. Probe and try again.
+                    track->status = TRACK_UNKNOWN;
+                }
             }
 
             if (image != NULL) {
