@@ -384,6 +384,7 @@ static bool read_track(track_t *track) {
             sector->status = SECTOR_GOOD;
             free(sector->data);
             sector->data = data;
+            sector->deleted = false;
 
             printf("*");
             continue;
