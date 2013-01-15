@@ -392,25 +392,37 @@ static bool read_track(track_t *track) {
 
         // Read a single sector.
         if (!fd_read(track, sector, data, sector_size, &cmd)) {
-            // Failed -- throw it away.
-            free(data);
-
-            printf("-");
+            // 0x20 is CRC Error in Data Field.
+            if ((cmd.reply[2] & 0x20) != 0) {
+                // Bad data. Better than nothing, but we'll want to try again.
+                sector->status = SECTOR_BAD;
+            } else {
+                // No data.
+                free(data);
+                data = NULL;
+            }
             all_ok = false;
         } else {
             // Success!
             sector->status = SECTOR_GOOD;
+        }
+
+        if (data != NULL) {
+            // 0x40 is Control Mark -- a deleted sector was read.
+            sector->deleted = (cmd.reply[2] & 0x40) != 0;
+
             free(sector->data);
             sector->data = data;
 
-            // 0x40 is Control Mark -- a deleted sector was read.
-            sector->deleted = (cmd.reply[2] & 0x40) == 0;
-
-            if (sector->deleted) {
+            if (sector->status == SECTOR_BAD) {
+                printf("?");
+            } else if (sector->deleted) {
                 printf("x");
             } else {
                 printf("+");
             }
+        } else {
+            printf("-");
         }
         fflush(stdout);
     }
