@@ -294,17 +294,11 @@ static bool probe_track(track_t *track) {
     track->num_sectors = end_pos;
 
     // Show what we found.
-    sector_t *lowest, *highest;
-    bool contiguous;
-    track_scan_sectors(track, &lowest, &highest, &contiguous);
-    printf(" %s", track->data_mode->name);
-    printf(" %dx%d", track->num_sectors, sector_bytes(track->sector_size_code));
-    if (contiguous) {
-        printf(" %d-%d", lowest->log_sector, highest->log_sector);
-    } else {
-        for (int i = 0; i < track->num_sectors; i++) {
-            printf(" %d", track->sectors[i].log_sector);
-        }
+    printf(" %s %dx%d:",
+           track->data_mode->name,
+           track->num_sectors, sector_bytes(track->sector_size_code));
+    for (int i = 0; i < track->num_sectors; i++) {
+        printf(" %d", track->sectors[i].log_sector);
     }
     printf("\n");
 
