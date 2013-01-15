@@ -528,6 +528,7 @@ static void usage(void) {
     fprintf(stderr, "  -t TRACKS  drive has TRACKS tracks (default autodetect)\n");
     // FIXME: -h HEAD     read single-sided image from head HEAD
     // FIXME: -S SEC      ignore sectors with logical ID SEC (for RM disks)
+    // FIXME: -C          read comment from stdin
 }
 
 int main(int argc, char **argv) {
