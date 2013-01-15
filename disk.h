@@ -30,6 +30,10 @@
     for each sector", it means "the *logical* ID". (That is, if you image a PC
     floppy with ImageDisk, it writes 01 02 ... 09 to the map; if you image a
     BBC floppy it writes 00 01 .. 09.)
+
+    FIXME: Is the first line of the IMD comment meant to indicate the version
+    of the format, or the application that created it?  (That is, should
+    dumpfloppy write "IMD 1.18" or "dumpfloppy 42" at the start of the line?)
 */
 
 #ifndef DISK_H
