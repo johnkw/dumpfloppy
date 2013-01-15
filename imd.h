@@ -1,5 +1,5 @@
 /*
-    imd.h: write ImageDisk .IMD files
+    imd.h: read and write ImageDisk .IMD files
 
     Copyright (C) 2013 Adam Sampson <ats@offog.org>
 
@@ -23,6 +23,7 @@
 
 #include <stdio.h>
 
+void read_imd(FILE *image, disk_t *disk);
 void write_imd_header(const disk_t *disk, FILE *image);
 void write_imd_track(const track_t *track, FILE *image);
 

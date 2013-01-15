@@ -1,5 +1,5 @@
 /*
-    imd.c: write ImageDisk .IMD files
+    imd.c: read and write ImageDisk .IMD files
 
     Copyright (C) 2013 Adam Sampson <ats@offog.org>
 
@@ -18,12 +18,31 @@
     PERFORMANCE OF THIS SOFTWARE.
 */
 
+#define _POSIX_C_SOURCE 200809L
+
 #include "disk.h"
 #include "imd.h"
+#include "util.h"
 
 #include <stdio.h>
 
 #define IMD_END_OF_COMMENT 0x1A
+
+void read_imd(FILE *image, disk_t *disk) {
+    free_disk(disk);
+
+    // Read the comment.
+    disk->comment = NULL;
+    size_t dummy = 0;
+    ssize_t count = getdelim(&disk->comment, &dummy, IMD_END_OF_COMMENT, image);
+    disk->comment_len = count - 1;
+    if (count < 0 || disk->comment[disk->comment_len] != IMD_END_OF_COMMENT) {
+        die("Couldn't find IMD comment delimiter");
+    }
+    disk->comment[disk->comment_len] = '\0';
+
+    // FIXME: rest of file
+}
 
 void write_imd_header(const disk_t *disk, FILE *image) {
     if (disk->comment != NULL) {
