@@ -356,7 +356,7 @@ static bool read_track(track_t *track) {
 
         if (sector->data != NULL) {
             // Already got this one.
-            printf("   ");
+            printf("    ");
             continue;
         }
 
