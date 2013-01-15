@@ -70,7 +70,7 @@ void free_sector(sector_t *sector) {
 }
 
 static const track_t EMPTY_TRACK = {
-    .probed = false,
+    .status = TRACK_UNKNOWN,
     .data_mode = NULL,
     .phys_cyl = -1,
     .phys_head = -1,
@@ -88,7 +88,7 @@ void init_track(int phys_cyl, int phys_head, track_t *track) {
 }
 
 void free_track(track_t *track) {
-    track->probed = false;
+    track->status = TRACK_UNKNOWN;
     track->num_sectors = 0;
     for (int i = 0; i < MAX_SECS; i++) {
         free_sector(&(track->sectors[i]));
@@ -137,11 +137,11 @@ void make_disk_comment(const char *program, const char *version, disk_t *disk) {
 }
 
 void copy_track_layout(const disk_t *disk, const track_t *src, track_t *dest) {
-    if (!src->probed) return;
+    if (src->status == TRACK_UNKNOWN) return;
 
     free_track(dest);
 
-    dest->probed = true;
+    dest->status = TRACK_GUESSED;
     dest->data_mode = src->data_mode;
     dest->num_sectors = src->num_sectors;
     dest->sector_size_code = src->sector_size_code;

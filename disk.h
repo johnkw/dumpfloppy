@@ -66,9 +66,15 @@ typedef struct {
 void init_sector(sector_t *sector);
 void free_sector(sector_t *sector);
 
+typedef enum {
+    TRACK_UNKNOWN = 0,
+    TRACK_GUESSED,
+    TRACK_PROBED
+} track_status_t;
+
 #define MAX_SECS 256
 typedef struct {
-    bool probed;
+    track_status_t status;
     const data_mode_t *data_mode;
     int phys_cyl;
     int phys_head;

@@ -308,7 +308,7 @@ static bool probe_track(track_t *track) {
     }
     printf("\n");
 
-    track->probed = true;
+    track->status = TRACK_PROBED;
     return true;
 }
 
@@ -317,7 +317,7 @@ static bool probe_track(track_t *track) {
 static bool read_track(track_t *track) {
     struct floppy_raw_cmd cmd;
 
-    if (!track->probed) {
+    if (track->status == TRACK_UNKNOWN) {
         if (!probe_track(track)) {
             return false;
         }
@@ -413,9 +413,9 @@ static void probe_disk(disk_t *disk) {
     track_t *side1 = &(disk->tracks[cyl][1]);
     sector_t *sec1 = &(side1->sectors[0]);
 
-    if (!(side0->probed || side1->probed)) {
+    if (side0->status == TRACK_UNKNOWN && side1->status == TRACK_UNKNOWN) {
         die("Cylinder 2 unreadable on either side");
-    } else if (side0->probed && !side1->probed) {
+    } else if (side1->status == TRACK_UNKNOWN) {
         printf("Single-sided disk\n");
         disk->num_phys_heads = 1;
     } else if (sec0->log_head == 0 && sec1->log_head == 0) {
@@ -517,7 +517,7 @@ static void process_floppy(void) {
                 // Failed; reprobe and try again.
                 // FIXME: Only reprobe if we haven't yet read any data from the
                 // track. If we have, then we don't want to lose it!
-                track->probed = false;
+                track->status = TRACK_UNKNOWN;
             }
 
             if (image != NULL) {
