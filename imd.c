@@ -116,10 +116,24 @@ void write_imd_track(const track_t *track, FILE *image) {
             type += IMD_SDR_IS_DELETED;
         }
 
-        // FIXME: compress if all bytes the same
-        fputc(type, image);
         if (sector->data != NULL) {
-            fwrite(sector->data, 1, sector_size, image);
+            const uint8_t first = sector->data[0];
+            bool can_compress = true;
+            for (int i = 0; i < sector_size; i++) {
+                if (sector->data[i] != first) {
+                    can_compress = false;
+                }
+            }
+
+            if (can_compress) {
+                fputc(type + IMD_SDR_IS_COMPRESSED, image);
+                fputc(first, image);
+            } else {
+                fputc(type, image);
+                fwrite(sector->data, 1, sector_size, image);
+            }
+        } else {
+            fputc(type, image);
         }
     }
 }
