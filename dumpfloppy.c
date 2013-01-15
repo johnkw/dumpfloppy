@@ -372,6 +372,7 @@ static bool read_track(track_t *track) {
         if (data == NULL) {
             die("malloc failed");
         }
+        memset(data, 0, sector_size);
 
         printf("%3d", sector->log_sector);
         fflush(stdout);
