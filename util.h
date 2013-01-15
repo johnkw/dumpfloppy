@@ -28,4 +28,8 @@ void die(const char *format, ...);
 #define die_errno(format, ...) \
     die(format ": %s", ##__VA_ARGS__, strerror(errno))
 
+// malloc a string (of the right size) and printf into it.
+// (Similar to GNU asprintf.)
+char *alloc_sprintf(const char *format, ...);
+
 #endif

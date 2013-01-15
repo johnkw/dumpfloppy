@@ -32,3 +32,23 @@ void die(const char *format, ...) {
     fputc('\n', stderr);
     exit(1);
 }
+
+char *alloc_sprintf(const char *format, ...) {
+    va_list ap;
+
+    va_start(ap, format);
+    char dummy;
+    int count = vsnprintf(&dummy, 0, format, ap);
+    va_end(ap);
+
+    char *s = malloc(count + 1);
+    if (s == NULL) {
+        return NULL;
+    }
+
+    va_start(ap, format);
+    vsnprintf(s, count + 1, format, ap);
+    va_end(ap);
+
+    return s;
+}
