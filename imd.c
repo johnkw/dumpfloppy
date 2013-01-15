@@ -25,6 +25,7 @@
 #include "util.h"
 
 #include <stdio.h>
+#include <sys/types.h>
 
 #define IMD_END_OF_COMMENT 0x1A
 
