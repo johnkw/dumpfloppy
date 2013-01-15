@@ -195,7 +195,7 @@ static sector_t *track_readid(track_t *track) {
 static bool probe_track(track_t *track) {
     free_track(track);
 
-    printf("Probing %02d.%d:", track->phys_cyl, track->phys_head);
+    printf("Probe %2d.%d:", track->phys_cyl, track->phys_head);
     fflush(stdout);
 
     // We want to make sure that we start reading sector IDs from the index
@@ -322,7 +322,7 @@ static bool read_track(track_t *track) {
         }
     }
 
-    printf("Reading %02d.%d:", track->phys_cyl, track->phys_head);
+    printf("Read  %2d.%d:", track->phys_cyl, track->phys_head);
     fflush(stdout);
 
     sector_t *lowest_sector, *highest_sector;
@@ -345,8 +345,6 @@ static bool read_track(track_t *track) {
         // The resulting data will be ordered by *logical* ID.
         if (fd_read(track, lowest_sector, track_data, track_size, &cmd)) {
             read_whole_track = true;
-            printf(" %d-%d+",
-                   lowest_sector->log_sector, highest_sector->log_sector);
         }
     }
 
@@ -357,7 +355,7 @@ static bool read_track(track_t *track) {
 
         if (sector->data != NULL) {
             // Already got this one.
-            printf(" (%d)", sector->log_sector);
+            printf("   ");
             continue;
         }
 
@@ -367,7 +365,7 @@ static bool read_track(track_t *track) {
             die("malloc failed");
         }
 
-        printf(" %d", sector->log_sector);
+        printf("%3d", sector->log_sector);
         fflush(stdout);
 
         if (read_whole_track) {
@@ -376,7 +374,7 @@ static bool read_track(track_t *track) {
             memcpy(sector->data,
                    track_data + (sector_size * rel_sec),
                    sector_size);
-            printf("=");
+            printf("*");
             continue;
         }
 
@@ -394,13 +392,8 @@ static bool read_track(track_t *track) {
         fflush(stdout);
     }
 
-    if (all_ok) {
-        printf(" OK\n");
-        return true;
-    } else {
-        printf("\n");
-        return false;
-    }
+    printf("\n");
+    return all_ok;
 }
 
 static void probe_disk(disk_t *disk) {
