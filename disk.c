@@ -58,6 +58,7 @@ static const sector_t EMPTY_SECTOR = {
     .log_cyl = 0xFF,
     .log_head = 0xFF,
     .log_sector = 0xFF,
+    .deleted = false,
     .data = NULL,
 };
 

@@ -166,6 +166,13 @@ static bool fd_read(const track_t *track, const sector_t *sector,
         die("FD_READID returned short reply");
     }
 
+    // If we're reading multiple sectors but hit a deleted sector, then the
+    // read will have stopped there -- fail.
+    if (buf_size > sector_bytes(track->sector_size_code)
+        && (cmd->reply[2] & 0x40) != 0) {
+        return false;
+    }
+
     // If ST0 interrupt code is 00, success.
     return ((cmd->reply[0] >> 6) & 3) == 0;
 }
@@ -393,7 +400,14 @@ static bool read_track(track_t *track) {
             sector->status = SECTOR_GOOD;
             sector->data = data;
 
-            printf("+");
+            // 0x40 is Control Mark -- a deleted sector was read.
+            sector->deleted = (cmd.reply[2] & 0x40) == 0;
+
+            if (sector->deleted) {
+                printf("x");
+            } else {
+                printf("+");
+            }
         }
         fflush(stdout);
     }

@@ -67,6 +67,7 @@ typedef struct {
     uint8_t log_cyl;
     uint8_t log_head;
     uint8_t log_sector;
+    bool deleted;
     uint8_t *data; // NULL if not read yet; allocate with malloc
 } sector_t;
 

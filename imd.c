@@ -112,6 +112,9 @@ void write_imd_track(const track_t *track, FILE *image) {
             type = IMD_SDR_DATA;
             break;
         }
+        if (sector->deleted) {
+            type += IMD_SDR_IS_DELETED;
+        }
 
         // FIXME: compress if all bytes the same
         fputc(type, image);
