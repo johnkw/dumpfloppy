@@ -136,6 +136,7 @@ void make_disk_comment(const char *program, const char *version, disk_t *disk) {
     if (disk->comment == NULL) {
         die("out of memory");
     }
+    disk->comment_len = strlen(disk->comment);
 }
 
 void copy_track_layout(const disk_t *disk, const track_t *src, track_t *dest) {
