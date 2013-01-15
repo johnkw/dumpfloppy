@@ -132,7 +132,7 @@ void copy_track_layout(const disk_t *disk, const track_t *src, track_t *dest) {
         sector_t *dest_sec = &(dest->sectors[i]);
 
         dest_sec->log_cyl = src_sec->log_cyl + cyl_diff;
-        dest_sec->log_head = src->phys_head;
+        dest_sec->log_head = src_sec->log_head;
         dest_sec->log_sector = src_sec->log_sector;
     }
 }
