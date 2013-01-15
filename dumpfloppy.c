@@ -163,7 +163,7 @@ static bool fd_read(const track_t *track, const sector_t *sector,
 }
 
 // Read a sector ID and append it to the sectors in the track.
-static bool track_readid(track_t *track) {
+static sector_t *track_readid(track_t *track) {
     struct floppy_raw_cmd cmd;
 
     if (track->num_sectors >= MAX_SECS) {
@@ -171,7 +171,7 @@ static bool track_readid(track_t *track) {
     }
 
     if (!fd_readid(track, &cmd)) {
-        return false;
+        return NULL;
     }
 
     sector_t *sector = &(track->sectors[track->num_sectors]);
@@ -188,7 +188,7 @@ static bool track_readid(track_t *track) {
     track->sector_size_code = cmd.reply[6];
 
     track->num_sectors++;
-    return true;
+    return sector;
 }
 
 static bool probe_track(track_t *track) {
@@ -209,7 +209,7 @@ static bool probe_track(track_t *track) {
         }
 
         track->data_mode = &DATA_MODES[i];
-        if (track_readid(track)) {
+        if (track_readid(track) != NULL) {
             printf(" %s", track->data_mode->name);
             fflush(stdout);
             break;
@@ -217,16 +217,40 @@ static bool probe_track(track_t *track) {
     }
 
     // Identify the sector numbering scheme.
-    // Read enough IDs for a few revolutions of the disk.
-    for (int i = 0; i < 30; i++) {
-        if (!track_readid(track)) {
+    // Track how many times we've seen each logical sector.
+    int seen_secs[MAX_SECS];
+    for (int i = 0; i < MAX_SECS; i++) {
+        seen_secs[i] = 0;
+    }
+
+    int count = 0;
+    while (true) {
+        sector_t *sector = track_readid(track);
+        if (sector == NULL) {
             printf(" readid failed\n");
             return false;
         }
 
-        // FIXME: we could get out of this loop sooner with a heuristic
-        // (if we've seen every sector ID either not at all or at least twice,
-        // then we've seen a full rotation, assuming we didn't miss any)
+        seen_secs[sector->log_sector]++;
+
+        // We can be reasonably confident that we've got them all once we've
+        // seen each sector at least min_seen times.
+        const int min_seen = 3;
+        bool seen_all = true;
+        for (int i = 0; i < MAX_SECS; i++) {
+            if (seen_secs[i] != 0 && seen_secs[i] < min_seen) {
+                seen_all = false;
+            }
+        }
+        if (seen_all) break;
+
+        // Make sure we don't get stuck in this loop forever (although this is
+        // highly unlikely).
+        const int max_count = 100;
+        if (count > max_count) {
+            printf(" spent too long looking for sector IDs\n");
+            return false;
+        }
     }
 
     // We've now got a sample of the sequence of sectors, e.g.
