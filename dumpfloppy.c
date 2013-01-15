@@ -316,6 +316,11 @@ static bool read_track(track_t *track) {
     unsigned char track_data[track_size];
     bool read_whole_track = false;
 
+    // FIXME: Read with the flag set that means deleted sectors won't be
+    // ignored (since we can't tell from readid whether the sectors were
+    // regular or deleted).
+    // FIXME: Describe read errors, with the phys/log context.
+
     if (contiguous) {
         // Try reading the whole track to start with.
         // If this works, it's a lot faster than reading sector-by-sector.
@@ -551,6 +556,8 @@ static void process_floppy(void) {
 
                 if (try == max_tries) {
                     // Tried too many times; give up.
+                    // FIXME: Don't die -- go on to the next track
+                    // (and then eventually retry the disk, if required).
                     die("Track failed to read after retrying");
                 }
 
@@ -560,6 +567,8 @@ static void process_floppy(void) {
                 }
 
                 // Failed; reprobe and try again.
+                // FIXME: Only reprobe if we haven't yet read any data from the
+                // track. If we have, then we don't want to lose it!
                 track->probed = false;
             }
 
