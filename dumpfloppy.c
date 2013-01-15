@@ -225,8 +225,6 @@ static bool probe_track(track_t *track) {
         if (track_readid(track) != NULL) {
             // This succeeded -- so we're at the start of the track
             // (see above).
-            printf(" %s", track->data_mode->name);
-            fflush(stdout);
             break;
         }
     }
@@ -298,6 +296,7 @@ static bool probe_track(track_t *track) {
     sector_t *lowest, *highest;
     bool contiguous;
     track_scan_sectors(track, &lowest, &highest, &contiguous);
+    printf(" %s", track->data_mode->name);
     printf(" %dx%d", track->num_sectors, sector_bytes(track->sector_size_code));
     if (contiguous) {
         printf(" %d-%d", lowest->log_sector, highest->log_sector);
