@@ -60,8 +60,11 @@ static int drive_selector(int head) {
 static void apply_data_mode(const data_mode_t *mode,
                             struct floppy_raw_cmd *cmd) {
     cmd->rate = mode->rate;
+    // 0x40 is the MFM bit.
     if (mode->is_fm) {
         cmd->cmd[0] &= ~0x40;
+    } else {
+        cmd->cmd[0] |= 0x40;
     }
 }
 
@@ -94,7 +97,8 @@ static void fd_recalibrate(struct floppy_raw_cmd *cmd) {
 static bool fd_readid(const track_t *track, struct floppy_raw_cmd *cmd) {
     memset(cmd, 0, sizeof *cmd);
 
-    cmd->cmd[0] = FD_READID;
+    // 0x0A is READ ID.
+    cmd->cmd[0] = 0x0A;
     cmd->cmd[1] = drive_selector(track->phys_head);
     cmd->cmd_count = 2;
     cmd->flags = FD_RAW_INTR | FD_RAW_NEED_SEEK;
@@ -126,8 +130,10 @@ static bool fd_read(const track_t *track, const sector_t *sector,
                     struct floppy_raw_cmd *cmd) {
     memset(cmd, 0, sizeof *cmd);
 
-    // 0x80 is the MT (multiple tracks) bit.
-    cmd->cmd[0] = FD_READ & ~0x80;
+    // 0x06 is READ DATA.
+    // (0x80 would be MT - span multiple tracks.)
+    // (0x20 would be SK - skip deleted data.)
+    cmd->cmd[0] = 0x06;
     cmd->cmd[1] = drive_selector(track->phys_head);
     cmd->cmd[2] = sector->log_cyl;
     cmd->cmd[3] = sector->log_head;
