@@ -24,6 +24,7 @@
 #include "util.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 static struct args {
@@ -32,11 +33,145 @@ static struct args {
     bool verbose;
 } args;
 
+static void update_range(int value, int *start, int *end) {
+    if (value < *start) {
+        *start = value;
+    }
+    if (value >= *end) {
+        *end = value + 1;
+    }
+}
+
+typedef struct {
+    int cyl; // either log or phys, depending on options
+    int head;
+    int sector;
+    const uint8_t *data; // NULL if this is a dummy
+} lump_t;
+
+static void add_lump(int cyl, int head, int sector, const uint8_t *data,
+                     lump_t **list, int *num, int *size) {
+    if (*num == *size) {
+        // Expand the list.
+        *size = (*size * 2) + 1;
+        *list = realloc(*list, (*size) * (sizeof **list));
+        if (*list == NULL) {
+            die("realloc failed");
+        }
+    }
+
+    lump_t *lump = &(*list)[*num];
+    lump->cyl = cyl;
+    lump->head = head;
+    lump->sector = sector;
+    lump->data = data;
+    (*num)++;
+}
+
+static int cmp_lump_addr(const lump_t *left, const lump_t *right) {
+    int d;
+
+    d = left->cyl - right->cyl;
+    if (d != 0) return d;
+
+    d = left->head - right->head;
+    if (d != 0) return d;
+
+    d = left->sector - right->sector;
+    if (d != 0) return d;
+
+    return 0;
+}
+
+static int cmp_lump(const void *left_v, const void *right_v) {
+    const lump_t *left = (const lump_t *) left_v;
+    const lump_t *right = (const lump_t *) right_v;
+
+    int d = cmp_lump_addr(left, right);
+    if (d != 0) return d;
+
+    // A lump with data should sort before a lump without data.
+    if (left->data != NULL && right->data == NULL) return -1;
+    if (left->data == NULL && right->data != NULL) return 1;
+
+    return 0;
+}
+
 static void write_flat(const disk_t *disk, FILE *flat) {
-    die("unimplemented");
-    // ... find range of logical cyls
-    // ... find range of logical heads
-    // ... find range of logical sectors
+    // The list of lumps to write.
+    lump_t *lumps = NULL;
+    int num_lumps = 0;
+    int size_lumps = 0;
+
+    int cyl_start = MAX_CYLS, cyl_end = 0;
+    int head_start = MAX_HEADS, head_end = 0;
+    int sec_start = MAX_SECS, sec_end = 0;
+    int size_code = -1;
+
+    // Find the range of cylinders, heads and sectors to write.
+    // For each real sector, add a lump.
+    for (int phys_cyl = 0; phys_cyl < disk->num_phys_cyls; phys_cyl++) {
+        for (int phys_head = 0; phys_head < disk->num_phys_heads; phys_head++) {
+            const track_t *track = &disk->tracks[phys_cyl][phys_head];
+
+            for (int phys_sec = 0; phys_sec < track->num_sectors; phys_sec++) {
+                const sector_t *sector = &track->sectors[phys_sec];
+
+                // FIXME: Option to include/exclude bad/deleted sectors
+                // FIXME: Option to use physical rather than logical values
+
+                update_range(sector->log_cyl, &cyl_start, &cyl_end);
+                update_range(sector->log_head, &head_start, &head_end);
+                update_range(sector->log_sector, &sec_start, &sec_end);
+
+                add_lump(sector->log_cyl, sector->log_head, sector->log_sector,
+                         sector->data,
+                         &lumps, &num_lumps, &size_lumps);
+            }
+
+            if (size_code != -1 && track->sector_size_code != size_code) {
+                die("Tracks have inconsistent sector sizes");
+            }
+            size_code = track->sector_size_code;
+        }
+    }
+
+    // For each sector that *should* exist, add a dummy lump.
+    for (int cyl = cyl_start; cyl < cyl_end; cyl++) {
+        for (int head = head_start; head < head_end; head++) {
+            for (int sec = sec_start; sec < sec_end; sec++) {
+                add_lump(cyl, head, sec, NULL,
+                         &lumps, &num_lumps, &size_lumps);
+            }
+        }
+    }
+
+    // Sort the whole lot.
+    qsort(lumps, num_lumps, sizeof *lumps, cmp_lump);
+
+    // Data to write where we don't have a real sector.
+    const int sector_size = sector_bytes(size_code);
+    uint8_t dummy_data[sector_size];
+    memset(dummy_data, 0xFF, sector_size);
+
+    // Go through the list, and write the first lump that comes up with each
+    // address.
+    for (int i = 0; i < num_lumps; i++) {
+        const lump_t *lump = &lumps[i];
+
+        if (i > 0 && cmp_lump_addr(&lumps[i - 1], lump) == 0) {
+            // Duplicate address -- so this must be a dummy one.
+            continue;
+        }
+
+        const uint8_t *data = lump->data;
+        if (data == NULL) {
+            data = dummy_data;
+        }
+        fwrite(data, 1, sector_size, flat);
+    }
+
+    free(lumps);
 }
 
 static void usage(void) {
