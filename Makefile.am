@@ -7,6 +7,8 @@ common_sources = \
 	disk.h \
 	imd.c \
 	imd.h \
+	show.c \
+	show.h \
 	util.c \
 	util.h
 

@@ -20,6 +20,7 @@
 
 #include "disk.h"
 #include "imd.h"
+#include "show.h"
 #include "util.h"
 
 #include <stdio.h>
@@ -27,22 +28,40 @@
 
 static struct args {
     const char *image_filename;
+    const char *flat_filename;
+    bool verbose;
 } args;
+
+static void write_flat(const disk_t *disk, FILE *flat) {
+    die("unimplemented");
+    // ... find range of logical cyls
+    // ... find range of logical heads
+    // ... find range of logical sectors
+}
 
 static void usage(void) {
     fprintf(stderr, "usage: imdcat [OPTION]... IMAGE-FILE\n");
+    fprintf(stderr, "  -o FILE    write sector data to flat file\n");
+    fprintf(stderr, "  -v         describe loaded image (implied if no -o)\n");
     // FIXME: multiple input files, to be merged
-    // FIXME: -v          display details of loaded image (implied if no -o)
-    // FIXME: -o FILE     write track data to flat file
-    // FIXME: -h          sort flat file by H, C, S (default: C, H, S)
+    // FIXME: -h          sort flat file by LH, LC, LS (default: LC, LH, LS)
 }
 
 int main(int argc, char **argv) {
+    args.flat_filename = NULL;
+    args.verbose = false;
+
     while (true) {
-        int opt = getopt(argc, argv, "");
+        int opt = getopt(argc, argv, "o:v");
         if (opt == -1) break;
 
         switch (opt) {
+        case 'o':
+            args.flat_filename = optarg;
+            break;
+        case 'v':
+            args.verbose = true;
+            break;
         default:
             usage();
             return 1;
@@ -54,6 +73,9 @@ int main(int argc, char **argv) {
         return 1;
     }
     args.image_filename = argv[optind];
+    if (args.flat_filename == NULL) {
+        args.verbose = true;
+    }
 
     disk_t disk;
     init_disk(&disk);
@@ -64,6 +86,16 @@ int main(int argc, char **argv) {
     }
     read_imd(f, &disk);
     fclose(f);
+
+    if (args.verbose) {
+        show_disk(&disk, stdout);
+    }
+
+    if (args.flat_filename != NULL) {
+        f = fopen(args.flat_filename, "wb");
+        write_flat(&disk, f);
+        fclose(f);
+    }
 
     free_disk(&disk);
 
