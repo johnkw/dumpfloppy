@@ -118,14 +118,18 @@ static void write_flat(const disk_t *disk, FILE *flat) {
                 const sector_t *sector = &track->sectors[phys_sec];
 
                 // FIXME: Option to include/exclude bad/deleted sectors
-                // FIXME: Option to use physical rather than logical values
 
-                update_range(sector->log_cyl, &cyl_start, &cyl_end);
-                update_range(sector->log_head, &head_start, &head_end);
-                update_range(sector->log_sector, &sec_start, &sec_end);
+                // Use physical cyl and head, but logical sector.
+                // FIXME: Option to choose physical/logical values
+                int cyl = phys_cyl;
+                int head = phys_head;
+                int sec = sector->log_sector;
 
-                add_lump(sector->log_cyl, sector->log_head, sector->log_sector,
-                         sector->data,
+                update_range(cyl, &cyl_start, &cyl_end);
+                update_range(head, &head_start, &head_end);
+                update_range(sec, &sec_start, &sec_end);
+
+                add_lump(cyl, head, sec, sector->data,
                          &lumps, &num_lumps, &size_lumps);
             }
 
@@ -160,7 +164,13 @@ static void write_flat(const disk_t *disk, FILE *flat) {
         const lump_t *lump = &lumps[i];
 
         if (i > 0 && cmp_lump_addr(&lumps[i - 1], lump) == 0) {
-            // Duplicate address -- so this must be a dummy one.
+            // Duplicate address -- which is OK if this is a dummy one.
+            // But not if, say, we're extracting a disk that uses the same head
+            // number on both sides.
+            if (lump->data != NULL) {
+                die("Two sectors found for cylinder %d head %d sector %d",
+                    lump->cyl, lump->head, lump->sector);
+            }
             continue;
         }
 
