@@ -103,7 +103,6 @@ static const disk_t EMPTY_DISK = {
     .comment_len = -1,
     .num_phys_cyls = -1,
     .num_phys_heads = 2,
-    .cyl_step = 1,
 };
 
 void init_disk(disk_t *disk) {

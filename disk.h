@@ -102,7 +102,6 @@ typedef struct {
     int num_phys_cyls;
     int num_phys_heads;
     track_t tracks[MAX_CYLS][MAX_HEADS]; // indexed by physical cyl/head
-    int cyl_step; // how many physical cyls to step for each logical one
 } disk_t;
 
 void init_disk(disk_t *disk);
