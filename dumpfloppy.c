@@ -47,6 +47,7 @@ static struct args {
     int drive;
     int tracks;
     int cyl_scale;
+    int ignore_sector;
     const char *image_filename;
 } args;
 static int dev_fd;
@@ -185,9 +186,11 @@ static sector_t *track_readid(track_t *track) {
         die("track_readid read too many sectors");
     }
 
-    if (!fd_readid(track, &cmd)) {
-        return NULL;
-    }
+    do {
+        if (!fd_readid(track, &cmd)) {
+            return NULL;
+        }
+    } while (args.ignore_sector == cmd.reply[5]);
 
     sector_t *sector = &(track->sectors[track->num_sectors]);
     free_sector(sector);
@@ -574,8 +577,8 @@ static void usage(void) {
     fprintf(stderr, "  -a         probe each track before reading\n");
     fprintf(stderr, "  -d NUM     drive number to read from (default 0)\n");
     fprintf(stderr, "  -t TRACKS  drive has TRACKS tracks (default autodetect)\n");
+    fprintf(stderr, "  -S SEC     ignore sectors with logical ID SEC\n");
     // FIXME: -h HEAD     read single-sided image from head HEAD
-    // FIXME: -S SEC      ignore sectors with logical ID SEC (for RM disks)
     // FIXME: -C          read comment from stdin
 }
 
@@ -585,10 +588,11 @@ int main(int argc, char **argv) {
     args.drive = 0;
     args.tracks = -1;
     args.cyl_scale = 1;
+    args.ignore_sector = -1;
     args.image_filename = NULL;
 
     while (true) {
-        int opt = getopt(argc, argv, "ad:t:");
+        int opt = getopt(argc, argv, "ad:t:S:");
         if (opt == -1) break;
 
         switch (opt) {
@@ -600,6 +604,9 @@ int main(int argc, char **argv) {
             break;
         case 't':
             args.tracks = atoi(optarg);
+            break;
+        case 'S':
+            args.ignore_sector = atoi(optarg);
             break;
         default:
             usage();
