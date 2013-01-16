@@ -34,7 +34,7 @@ void show_sector(const sector_t *sector, FILE *out) {
     char label = ' ';
     switch (sector->status) {
     case SECTOR_MISSING:
-        fprintf(out, "    ");
+        fprintf(out, "  . ");
         return;
     case SECTOR_BAD:
         label = '?';
