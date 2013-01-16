@@ -25,9 +25,156 @@
 #include "util.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 
 #define IMD_END_OF_COMMENT 0x1A
+
+#define IMD_HEAD_MASK 0x03
+#define IMD_NEED_CYL_MAP 0x80
+#define IMD_NEED_HEAD_MAP 0x40
+#define IMD_ALL_FLAGS (IMD_HEAD_MASK | IMD_NEED_CYL_MAP | IMD_NEED_HEAD_MAP)
+
+// These Sector Data Record flags are combined by +, not |.
+#define IMD_SDR_DATA 0x01
+#define IMD_SDR_IS_COMPRESSED 0x01
+#define IMD_SDR_IS_DELETED 0x02
+#define IMD_SDR_IS_ERROR 0x04
+
+// Read a track and add it to the disk. Return false on EOF.
+static bool read_imd_track(FILE *image, disk_t *disk) {
+    uint8_t header[5];
+    int count = fread(header, 1, 5, image);
+    if (count == 0 && feof(image)) {
+        return false;
+    }
+    if (count != 5) {
+        die("Couldn't read IMD track header");
+    }
+
+    int phys_cyl = header[1];
+    if (phys_cyl >= MAX_CYLS) {
+        die("IMD track cylinder value too large: %d", phys_cyl);
+    }
+    if (phys_cyl >= disk->num_phys_cyls) {
+        disk->num_phys_cyls = phys_cyl + 1;
+    }
+
+    if ((header[2] & ~IMD_ALL_FLAGS) != 0) {
+        die("IMD track has unsupported flags: %02x", header[2]);
+    }
+
+    int phys_head = header[2] & IMD_HEAD_MASK;
+    if (phys_head >= MAX_HEADS) {
+        die("IMD track head value too large: %d", phys_head);
+    }
+    if (phys_head >= disk->num_phys_heads) {
+        disk->num_phys_heads = phys_head + 1;
+    }
+
+    track_t *track = &disk->tracks[phys_cyl][phys_head];
+    track->status = TRACK_PROBED;
+    for (int i = 0; ; i++) {
+        if (DATA_MODES[i].name == NULL) {
+            die("IMD track mode unknown: %d", header[0]);
+        }
+        if (DATA_MODES[i].imd_mode == header[0]) {
+            track->data_mode = &DATA_MODES[i];
+            break;
+        }
+    }
+    track->phys_cyl = phys_cyl;
+    track->phys_head = phys_head;
+    int num_sectors = header[3];
+    track->num_sectors = num_sectors;
+    track->sector_size_code = header[4];
+    if (track->sector_size_code == 0xFF) {
+        // FIXME: implement this (by having arbitrary sector sizes)
+        die("IMD variable sector size extension not supported");
+    }
+    int sector_size = sector_bytes(track->sector_size_code);
+
+    uint8_t sec_map[num_sectors];
+    uint8_t cyl_map[num_sectors];
+    uint8_t head_map[num_sectors];
+
+    if (fread(sec_map, 1, num_sectors, image) != num_sectors) {
+        die("Couldn't read IMD sector map");
+    }
+    if (header[2] & IMD_NEED_CYL_MAP) {
+        if (fread(cyl_map, 1, num_sectors, image) != num_sectors) {
+            die("Couldn't read IMD cylinder map");
+        }
+    } else {
+        memset(cyl_map, phys_cyl, num_sectors);
+    }
+    if (header[2] & IMD_NEED_HEAD_MAP) {
+        if (fread(head_map, 1, num_sectors, image) != num_sectors) {
+            die("Couldn't read IMD head map");
+        }
+    } else {
+        memset(head_map, phys_head, num_sectors);
+    }
+
+    for (int phys_sec = 0; phys_sec < num_sectors; phys_sec++) {
+        sector_t *sector = &track->sectors[phys_sec];
+
+        sector->status = SECTOR_MISSING;
+        sector->log_cyl = cyl_map[phys_sec];
+        sector->log_head = head_map[phys_sec];
+        sector->log_sector = sec_map[phys_sec];
+        sector->deleted = false;
+        sector->data = NULL;
+
+        uint8_t type, orig_type;
+        if (fread(&type, 1, 1, image) != 1) {
+            die("Couldn't read IMD sector header");
+        }
+        orig_type = type;
+
+        if (type > 0) {
+            type -= IMD_SDR_DATA;
+
+            sector->data = malloc(sector_size);
+            if (sector->data == NULL) {
+                die("malloc failed");
+            }
+
+            if (type >= IMD_SDR_IS_ERROR) {
+                type -= IMD_SDR_IS_ERROR;
+                sector->status = SECTOR_BAD;
+            } else {
+                sector->status = SECTOR_GOOD;
+            }
+
+            if (type >= IMD_SDR_IS_DELETED) {
+                type -= IMD_SDR_IS_DELETED;
+                sector->deleted = true;
+            }
+
+            if (type >= IMD_SDR_IS_COMPRESSED) {
+                type -= IMD_SDR_IS_COMPRESSED;
+
+                uint8_t fill;
+                if (fread(&fill, 1, 1, image) != 1) {
+                    die("Couldn't read IMD compressed sector data");
+                }
+                memset(sector->data, fill, sector_size);
+            } else {
+                if (fread(sector->data, 1, sector_size, image) != sector_size) {
+                    die("Couldn't read IMD sector data");
+                }
+            }
+
+            if (type != 0) {
+                die("IMD sector has unsupported flags: %08x", orig_type);
+            }
+        }
+    }
+
+    return true;
+}
 
 void read_imd(FILE *image, disk_t *disk) {
     free_disk(disk);
@@ -42,7 +189,12 @@ void read_imd(FILE *image, disk_t *disk) {
     }
     disk->comment[disk->comment_len] = '\0';
 
-    // FIXME: rest of file
+    disk->num_phys_cyls = 0;
+    disk->num_phys_heads = 0;
+
+    while (read_imd_track(image, disk)) {
+        // Nothing.
+    }
 }
 
 void write_imd_header(const disk_t *disk, FILE *image) {
@@ -52,13 +204,6 @@ void write_imd_header(const disk_t *disk, FILE *image) {
     fputc(IMD_END_OF_COMMENT, image);
 }
 
-#define IMD_NEED_CYL_MAP 0x80
-#define IMD_NEED_HEAD_MAP 0x40
-// These Sector Data Record flags are combined by +, not |.
-#define IMD_SDR_DATA 0x01
-#define IMD_SDR_IS_COMPRESSED 0x01
-#define IMD_SDR_IS_DELETED 0x02
-#define IMD_SDR_IS_ERROR 0x04
 void write_imd_track(const track_t *track, FILE *image) {
     uint8_t flags = 0;
 
