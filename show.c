@@ -31,7 +31,7 @@ void show_mode(const data_mode_t *mode, FILE *out) {
 }
 
 void show_sector(const sector_t *sector, FILE *out) {
-    char label;
+    char label = ' ';
     switch (sector->status) {
     case SECTOR_MISSING:
         fprintf(out, "    ");
