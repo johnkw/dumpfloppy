@@ -101,8 +101,8 @@ void free_track(track_t *track) {
 static const disk_t EMPTY_DISK = {
     .comment = NULL,
     .comment_len = -1,
-    .num_phys_cyls = -1,
-    .num_phys_heads = 2,
+    .num_phys_cyls = 0,
+    .num_phys_heads = 0,
 };
 
 void init_disk(disk_t *disk) {
