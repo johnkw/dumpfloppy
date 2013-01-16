@@ -518,6 +518,9 @@ static void process_floppy(void) {
 
     FILE *image = NULL;
     if (args.image_filename != NULL) {
+        // FIXME: if the image exists already, load it
+        // (so the comment is preserved)
+
         image = fopen(args.image_filename, "wb");
         if (image == NULL) {
             die_errno("cannot open %s", args.image_filename);
@@ -526,7 +529,10 @@ static void process_floppy(void) {
         write_imd_header(&disk, image);
     }
 
-    // FIXME: retry disk if not complete
+    // FIXME: retry disk if not complete -- option for number of retries
+    // FIXME: if retrying, ensure we've moved the head across the disk
+    // FIXME: if retrying, turn the motor off and on (delay? close?)
+    // FIXME: pull this out to a read_disk function
     for (int cyl = 0; cyl < disk.num_phys_cyls; cyl++) {
         for (int head = 0; head < disk.num_phys_heads; head++) {
             track_t *track = &(disk.tracks[cyl][head]);
@@ -538,10 +544,9 @@ static void process_floppy(void) {
                 copy_track_layout(&disk, &(disk.tracks[cyl - 1][head]), track);
             }
 
+            // FIXME: option for this
             const int max_tries = 10;
             for (int try = 0; ; try++) {
-                // FIXME: seek the head around, turn the motor on/off...
-
                 if (try == max_tries) {
                     // Tried too many times; give up.
                     break;

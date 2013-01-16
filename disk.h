@@ -77,6 +77,7 @@ void free_sector(sector_t *sector);
 typedef enum {
     TRACK_UNKNOWN = 0,
     TRACK_GUESSED,
+    // FIXME: Call this TRACK_KNOWN
     TRACK_PROBED
 } track_status_t;
 
