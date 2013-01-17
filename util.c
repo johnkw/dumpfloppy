@@ -33,6 +33,8 @@ void die(const char *format, ...) {
     exit(1);
 }
 
+// FIXME: add checked malloc
+
 char *alloc_sprintf(const char *format, ...) {
     va_list ap;
 

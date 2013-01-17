@@ -254,6 +254,10 @@ static bool probe_track(track_t *track) {
         seen_secs[i] = 0;
     }
 
+    // FIXME: if the first sector wasn't the lowest-numbered one, this is
+    // highly suspicious -- dump it and start again unless it does the same
+    // thing a couple of times
+
     // Read sector IDs until we've seen the complete sequence several times.
     int count = 0;
     while (true) {
