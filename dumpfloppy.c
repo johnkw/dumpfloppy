@@ -47,6 +47,7 @@ static struct args {
     int drive;
     int tracks;
     int cyl_scale;
+    bool read_comment;
     int ignore_sector;
     const char *image_filename;
 } args;
@@ -510,6 +511,23 @@ static void process_floppy(void) {
     init_disk(&disk);
     make_disk_comment(PACKAGE_NAME, PACKAGE_VERSION, &disk);
 
+    if (args.read_comment) {
+        if (isatty(0)) {
+            fprintf(stderr, "Enter comment, terminated by EOF\n");
+        }
+
+        while (true) {
+            char buf[4096];
+            ssize_t count = read(0, buf, sizeof buf);
+            if (count == 0) break;
+            if (count < 0) {
+                die("read from stdin failed");
+            }
+
+            alloc_append(buf, count, &disk.comment, &disk.comment_len);
+        }
+    }
+
     if (args.tracks == -1) {
         disk.num_phys_cyls = drive_params.tracks;
     } else {
@@ -586,9 +604,9 @@ static void usage(void) {
     fprintf(stderr, "  -a         probe each track before reading\n");
     fprintf(stderr, "  -d NUM     drive number to read from (default 0)\n");
     fprintf(stderr, "  -t TRACKS  drive has TRACKS tracks (default autodetect)\n");
+    fprintf(stderr, "  -C         read comment from stdin\n");
     fprintf(stderr, "  -S SEC     ignore sectors with logical ID SEC\n");
     // FIXME: -h HEAD     read single-sided image from head HEAD
-    // FIXME: -C          read comment from stdin
 }
 
 int main(int argc, char **argv) {
@@ -597,11 +615,12 @@ int main(int argc, char **argv) {
     args.drive = 0;
     args.tracks = -1;
     args.cyl_scale = 1;
+    args.read_comment = false;
     args.ignore_sector = -1;
     args.image_filename = NULL;
 
     while (true) {
-        int opt = getopt(argc, argv, "ad:t:S:");
+        int opt = getopt(argc, argv, "ad:t:CS:");
         if (opt == -1) break;
 
         switch (opt) {
@@ -613,6 +632,9 @@ int main(int argc, char **argv) {
             break;
         case 't':
             args.tracks = atoi(optarg);
+            break;
+        case 'C':
+            args.read_comment = true;
             break;
         case 'S':
             args.ignore_sector = atoi(optarg);
