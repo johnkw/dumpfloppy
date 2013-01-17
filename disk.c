@@ -129,7 +129,7 @@ void make_disk_comment(const char *program, const char *version, disk_t *disk) {
     const struct tm *local = localtime(&now);
 
     disk->comment = alloc_sprintf(
-        "IMD 1.18-%s-%s: %02d/%02d/%04d %02d:%02d:%02d\r\n",
+        "%s %s: %02d/%02d/%04d %02d:%02d:%02d\r\n",
         program, version,
         local->tm_mday, local->tm_mon + 1, local->tm_year + 1900,
         local->tm_hour, local->tm_min, local->tm_sec);
