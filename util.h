@@ -33,4 +33,8 @@ void die(const char *format, ...);
 // (Similar to GNU asprintf.)
 char *alloc_sprintf(const char *format, ...);
 
+// Append data to a malloc-d buffer, reallocing it if necessary.
+void alloc_append(const char *append, int append_len,
+                  char **buf, int *buf_len);
+
 #endif

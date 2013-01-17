@@ -23,6 +23,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 void die(const char *format, ...) {
     va_list ap;
@@ -53,4 +54,15 @@ char *alloc_sprintf(const char *format, ...) {
     va_end(ap);
 
     return s;
+}
+
+void alloc_append(const char *append, int append_len,
+                  char **buf, int *buf_len) {
+    *buf = realloc(*buf, *buf_len + append_len);
+    if (*buf == NULL && (*buf_len + append_len) != 0) {
+        die("realloc failed");
+    }
+
+    memcpy(*buf + *buf_len, append, append_len);
+    *buf_len += append_len;
 }
