@@ -52,6 +52,9 @@ void show_sector(const sector_t *sector, FILE *out) {
 
 void show_track(const track_t *track, FILE *out) {
     show_mode(track->data_mode, out);
+    fprintf(out, " %dx%d",
+            track->num_sectors,
+            sector_bytes(track->sector_size_code));
     for (int phys_sec = 0; phys_sec < track->num_sectors; phys_sec++) {
         show_sector(&track->sectors[phys_sec], out);
     }
