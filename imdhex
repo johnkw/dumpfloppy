@@ -1,0 +1,22 @@
+#!/bin/sh
+# Hexdump a floppy's contents, showing CHS positions.
+# FIXME: This is a hack -- there should be a proper imdhex tool.
+img=`mktemp`
+trap 'rm -f $img' 0
+imdcat -o $img "$1"
+# FIXME: don't hardcode
+size=128
+secs=16
+heads=2
+hexdump -C $img | perl -pe \
+	'if (/^([0-9a-f]+)/) {
+		$n = hex($1);
+		$byte = $n % '$size';
+		$n = int($n / '$size');
+		$sec = $n % '$secs';
+		$n = int($n / '$secs');
+		$head = $n % '$heads';
+		$n = int($n / '$heads');
+		$cyl = $n;
+		print "C$cyl H$head S$sec\n" if $byte == 0;
+	}'
