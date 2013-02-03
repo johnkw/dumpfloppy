@@ -3,7 +3,7 @@
 # FIXME: This is a hack -- there should be a proper imdhex tool.
 img=`mktemp`
 trap 'rm -f $img' 0
-imdcat -o $img "$1"
+imdcat -o $img "$@"
 # FIXME: don't hardcode
 size=128
 secs=16
