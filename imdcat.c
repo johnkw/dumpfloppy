@@ -147,12 +147,12 @@ static void write_flat(const disk_t *disk, FILE *flat) {
 
                 add_lump(cyl, head, sec, sector->data,
                          &lumps, &num_lumps, &size_lumps);
-            }
 
-            if (size_code != -1 && track->sector_size_code != size_code) {
-                die("Tracks have inconsistent sector sizes");
+                if (size_code != -1 && track->sector_size_code != size_code) {
+                    die("Tracks have inconsistent sector sizes");
+                }
+                size_code = track->sector_size_code;
             }
-            size_code = track->sector_size_code;
         }
     }
 
