@@ -34,6 +34,7 @@ static struct args {
     const char *flat_filename;
     int only_head;
     bool verbose;
+    bool show_data;
 } args;
 
 static void update_range(int value, int *start, int *end) {
@@ -213,7 +214,8 @@ static void usage(void) {
     fprintf(stderr, "  -c         write comment to stdout\n");
     fprintf(stderr, "  -o FILE    write sector data to flat file\n");
     fprintf(stderr, "  -s SIDE    only write side SIDE (default both)\n");
-    fprintf(stderr, "  -v         describe loaded image (implied if no -c/-o)\n");
+    fprintf(stderr, "  -v         describe loaded image (default action)\n");
+    fprintf(stderr, "  -x         show hexdump of data in image\n");
     // FIXME: multiple input files, to be merged
     // FIXME: -h          sort flat file by LH, LC, LS (default: LC, LH, LS)
     // FIXME: specify ranges of input/output C/H/S (rather than -B)
@@ -225,9 +227,10 @@ int main(int argc, char **argv) {
     args.flat_filename = NULL;
     args.only_head = -1;
     args.verbose = false;
+    args.show_data = false;
 
     while (true) {
-        int opt = getopt(argc, argv, "B:co:s:v");
+        int opt = getopt(argc, argv, "B:co:s:vx");
         if (opt == -1) break;
 
         switch (opt) {
@@ -246,6 +249,9 @@ int main(int argc, char **argv) {
         case 'v':
             args.verbose = true;
             break;
+        case 'x':
+            args.show_data = true;
+            break;
         default:
             usage();
             return 1;
@@ -258,6 +264,9 @@ int main(int argc, char **argv) {
     }
     args.image_filename = argv[optind];
     if (!args.show_comment && args.flat_filename == NULL) {
+        args.verbose = true;
+    }
+    if (args.show_data) {
         args.verbose = true;
     }
 
@@ -276,7 +285,7 @@ int main(int argc, char **argv) {
     }
 
     if (args.verbose) {
-        show_disk(&disk, stdout);
+        show_disk(&disk, args.show_data, stdout);
     }
 
     if (args.flat_filename != NULL) {

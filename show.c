@@ -60,13 +60,65 @@ void show_track(const track_t *track, FILE *out) {
     }
 }
 
+void show_track_data(const track_t *track, FILE *out) {
+    for (int phys_sec = 0; phys_sec < track->num_sectors; phys_sec++) {
+        const sector_t *sector = &track->sectors[phys_sec];
+        if (sector->status == SECTOR_MISSING) continue;
+
+        const int data_len = sector_bytes(track->sector_size_code);
+        fprintf(out, "Physical C %d H %d S %d, logical C %d H %d S %d",
+                track->phys_cyl, track->phys_head, phys_sec,
+                sector->log_cyl, sector->log_head, sector->log_sector);
+        if (sector->status == SECTOR_BAD) {
+            fprintf(out, " (bad data)");
+        }
+        fprintf(out, ":\n");
+
+        // The format here is based on "hexdump -C".
+        // (Although it's not smart enough to fold identical data.)
+        const uint8_t *data = sector->data;
+        const int line_len = 16;
+        for (int i = 0; i < data_len; i += line_len) {
+            fprintf(out, "%04x ", i);
+
+            for (int j = 0; j < line_len; j++) {
+                const int pos = i + j;
+                if (pos < data_len) {
+                    fprintf(out, " %02x", data[pos]);
+                } else {
+                    fprintf(out, "   ");
+                }
+            }
+
+            fprintf(out, "  |");
+            for (int j = 0; j < line_len; j++) {
+                const int pos = i + j;
+                if (pos < data_len) {
+                    const uint8_t c = data[pos];
+                    if (c >= 32 && c < 127) {
+                        fprintf(out, "%c", c);
+                    } else {
+                        fprintf(out, ".");
+                    }
+                } else {
+                    fprintf(out, " ");
+                }
+            }
+
+            fprintf(out, "|\n");
+        }
+
+        fprintf(out, "\n");
+    }
+}
+
 void show_comment(const disk_t *disk, FILE *out) {
     if (disk->comment) {
         fwrite(disk->comment, 1, disk->comment_len, out);
     }
 }
 
-void show_disk(const disk_t *disk, FILE *out) {
+void show_disk(const disk_t *disk, bool with_data, FILE *out) {
     show_comment(disk, out);
     fprintf(out, "\n");
     for (int phys_cyl = 0; phys_cyl < disk->num_phys_cyls; phys_cyl++) {
@@ -74,6 +126,11 @@ void show_disk(const disk_t *disk, FILE *out) {
             fprintf(out, "%2d.%d:", phys_cyl, phys_head);
             show_track(&disk->tracks[phys_cyl][phys_head], out);
             fprintf(out, "\n");
+
+            if (with_data) {
+                fprintf(out, "\n");
+                show_track_data(&disk->tracks[phys_cyl][phys_head], out);
+            }
         }
     }
 }
