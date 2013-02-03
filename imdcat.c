@@ -29,6 +29,7 @@
 
 static struct args {
     const char *image_filename;
+    int boot_cyls;
     bool show_comment;
     const char *flat_filename;
     int only_head;
@@ -142,6 +143,11 @@ static void write_flat(const disk_t *disk, FILE *flat) {
                 update_range(head, &head_start, &head_end);
                 update_range(sec, &sec_start, &sec_end);
 
+                // Some formats have boot cylinders in a different format on
+                // the first few tracks -- sometimes it's useful to pretend
+                // these don't exist.
+                if (cyl < args.boot_cyls) continue;
+
                 // FIXME: Option to include/exclude bad/deleted sectors
                 if (sector->status == SECTOR_MISSING) continue;
 
@@ -202,25 +208,32 @@ static void write_flat(const disk_t *disk, FILE *flat) {
 
 static void usage(void) {
     fprintf(stderr, "usage: imdcat [OPTION]... IMAGE-FILE\n");
+    fprintf(stderr, "  -B CYLS    pretend the first CYLS cylinders are "
+                    "unreadable when writing\n");
     fprintf(stderr, "  -c         write comment to stdout\n");
     fprintf(stderr, "  -o FILE    write sector data to flat file\n");
     fprintf(stderr, "  -s SIDE    only write side SIDE (default both)\n");
     fprintf(stderr, "  -v         describe loaded image (implied if no -c/-o)\n");
     // FIXME: multiple input files, to be merged
     // FIXME: -h          sort flat file by LH, LC, LS (default: LC, LH, LS)
+    // FIXME: specify ranges of input/output C/H/S (rather than -B)
 }
 
 int main(int argc, char **argv) {
+    args.boot_cyls = 0;
     args.show_comment = false;
     args.flat_filename = NULL;
     args.only_head = -1;
     args.verbose = false;
 
     while (true) {
-        int opt = getopt(argc, argv, "co:s:v");
+        int opt = getopt(argc, argv, "B:co:s:v");
         if (opt == -1) break;
 
         switch (opt) {
+        case 'B':
+            args.boot_cyls = atoi(optarg);
+            break;
         case 'c':
             args.show_comment = true;
             break;
