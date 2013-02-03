@@ -132,8 +132,6 @@ static void write_flat(const disk_t *disk, FILE *flat) {
             for (int phys_sec = 0; phys_sec < track->num_sectors; phys_sec++) {
                 const sector_t *sector = &track->sectors[phys_sec];
 
-                // FIXME: Option to include/exclude bad/deleted sectors
-
                 // Use physical cyl and head, but logical sector.
                 // FIXME: Option to choose physical/logical values
                 int cyl = phys_cyl;
@@ -143,6 +141,9 @@ static void write_flat(const disk_t *disk, FILE *flat) {
                 update_range(cyl, &cyl_start, &cyl_end);
                 update_range(head, &head_start, &head_end);
                 update_range(sec, &sec_start, &sec_end);
+
+                // FIXME: Option to include/exclude bad/deleted sectors
+                if (sector->status == SECTOR_MISSING) continue;
 
                 add_lump(cyl, head, sec, sector->data,
                          &lumps, &num_lumps, &size_lumps);
