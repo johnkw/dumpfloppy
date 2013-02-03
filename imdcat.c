@@ -142,12 +142,16 @@ static void write_flat(const disk_t *disk, FILE *flat) {
 
                 update_range(cyl, &cyl_start, &cyl_end);
                 update_range(head, &head_start, &head_end);
-                update_range(sec, &sec_start, &sec_end);
 
                 // Some formats have boot cylinders in a different format on
                 // the first few tracks -- sometimes it's useful to pretend
                 // these don't exist.
                 if (cyl < args.boot_cyls) continue;
+
+                // XXX: and when you're doing that, you *don't* want to count
+                // the logical sectors on the track you're ignoring. This is
+                // really ugly.
+                update_range(sec, &sec_start, &sec_end);
 
                 // FIXME: Option to include/exclude bad/deleted sectors
                 if (sector->status == SECTOR_MISSING) continue;
