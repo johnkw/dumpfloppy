@@ -60,10 +60,14 @@ void show_track(const track_t *track, FILE *out) {
     }
 }
 
-void show_disk(const disk_t *disk, FILE *out) {
+void show_comment(const disk_t *disk, FILE *out) {
     if (disk->comment) {
         fwrite(disk->comment, 1, disk->comment_len, out);
     }
+}
+
+void show_disk(const disk_t *disk, FILE *out) {
+    show_comment(disk, out);
     fprintf(out, "\n");
     for (int phys_cyl = 0; phys_cyl < disk->num_phys_cyls; phys_cyl++) {
         for (int phys_head = 0; phys_head < disk->num_phys_heads; phys_head++) {
