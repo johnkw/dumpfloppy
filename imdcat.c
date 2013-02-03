@@ -30,6 +30,7 @@
 static struct args {
     const char *image_filename;
     const char *flat_filename;
+    int only_head;
     bool verbose;
 } args;
 
@@ -103,6 +104,19 @@ static void write_flat(const disk_t *disk, FILE *flat) {
     int num_lumps = 0;
     int size_lumps = 0;
 
+    // The range of physical heads to look for.
+    int head_from = 0;
+    int head_to = disk->num_phys_heads;
+    if (args.only_head != -1) {
+        if (args.only_head < head_from || args.only_head >= head_to) {
+            die("Requested side %d has no data (only %d to %d)",
+                args.only_head, head_from, head_to - 1);
+        }
+        head_from = args.only_head;
+        head_to = args.only_head + 1;
+    }
+
+    // The range of C/H/S to use in the image (based on what we load).
     int cyl_start = MAX_CYLS, cyl_end = 0;
     int head_start = MAX_HEADS, head_end = 0;
     int sec_start = MAX_SECS, sec_end = 0;
@@ -111,7 +125,7 @@ static void write_flat(const disk_t *disk, FILE *flat) {
     // Find the range of cylinders, heads and sectors to write.
     // For each real sector, add a lump.
     for (int phys_cyl = 0; phys_cyl < disk->num_phys_cyls; phys_cyl++) {
-        for (int phys_head = 0; phys_head < disk->num_phys_heads; phys_head++) {
+        for (int phys_head = head_from; phys_head < head_to; phys_head++) {
             const track_t *track = &disk->tracks[phys_cyl][phys_head];
 
             for (int phys_sec = 0; phys_sec < track->num_sectors; phys_sec++) {
@@ -187,6 +201,7 @@ static void write_flat(const disk_t *disk, FILE *flat) {
 static void usage(void) {
     fprintf(stderr, "usage: imdcat [OPTION]... IMAGE-FILE\n");
     fprintf(stderr, "  -o FILE    write sector data to flat file\n");
+    fprintf(stderr, "  -s SIDE    only write side SIDE (default both)\n");
     fprintf(stderr, "  -v         describe loaded image (implied if no -o)\n");
     // FIXME: multiple input files, to be merged
     // FIXME: -h          sort flat file by LH, LC, LS (default: LC, LH, LS)
@@ -194,15 +209,19 @@ static void usage(void) {
 
 int main(int argc, char **argv) {
     args.flat_filename = NULL;
+    args.only_head = -1;
     args.verbose = false;
 
     while (true) {
-        int opt = getopt(argc, argv, "o:v");
+        int opt = getopt(argc, argv, "o:s:v");
         if (opt == -1) break;
 
         switch (opt) {
         case 'o':
             args.flat_filename = optarg;
+            break;
+        case 's':
+            args.only_head = atoi(optarg);
             break;
         case 'v':
             args.verbose = true;
