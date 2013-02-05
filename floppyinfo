@@ -103,7 +103,7 @@ show_imd () {
 				for user in `seq 0 15`; do
 					dir="$diskdir/user$user"
 					mkdir -p "$dir"
-					cpmcp -f $cpmtype $img $user:'*.*' "$dir" 2>&1 | grep -v "can not open"
+					cpmcp -f $cpmtype $img $user:'*' $user:'*.*' "$dir" 2>&1 | grep -v "can not open"
 					rmdir "$dir" 2>/dev/null
 				done
 			fi
