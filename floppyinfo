@@ -1,0 +1,94 @@
+#!/bin/sh
+: <<END
+    floppyinfo: show information about the contents of a floppy image.
+
+    Copyright (C) 2013 Adam Sampson <ats@offog.org>
+
+    Permission to use, copy, modify, and/or distribute this software for
+    any purpose with or without fee is hereby granted, provided that the
+    above copyright notice and this permission notice appear in all
+    copies.
+
+    THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+    WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
+    WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
+    AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
+    DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+    PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+    TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+    PERFORMANCE OF THIS SOFTWARE.
+END
+
+tempdir=`mktemp -d`
+trap 'rm -fr $tempdir' 0
+
+show_imd () {
+	fn="$1"
+	echo
+	echo "$fn"
+	imdcat -c "$fn" | tail -n +2 | sed 's,^,  | ,'
+
+	imdcat -B3 -o $tempdir/whole.img "$fn"
+	size=`stat -c '%s' $tempdir/whole.img`
+
+	flags=""
+	cpmtype=""
+	case $size in
+	81920)
+		# RM SS 40T 16x128
+		flags="-B3"
+		sides="0"
+		cpmtype="rm380z"
+		;;
+	163840)
+		# RM DS 40T 16x128
+		flags="-B3"
+		sides="0 1"
+		cpmtype="rm380z"
+		;;
+	184320)
+		# RM SS 40T 9x512
+		flags="-B3"
+		sides="0"
+		cpmtype="rm480z"
+		;;
+	368640)
+		# RM DS 40T 9x512
+		flags="-B3"
+		sides="0 1"
+		cpmtype="rm480z"
+		;;
+	327680)
+		# Alphatronic PC 40T 16x256
+		# FIXME: This doesn't do the right thing for the ZCPR
+		# disks I have...
+		sides="both"
+		cpmtype="alpha"
+		;;
+	*)
+		echo >&2 "$fn has unrecognised size: $size"
+		return 1
+		;;
+	esac
+
+	for side in $sides; do
+		img=$tempdir/side$side.img
+		if [ $side = both ]; then
+			sideflags=""
+			label="Both sides"
+		else
+			sideflags="-s $side"
+			label="Side $side"
+		fi
+		imdcat $flags $sideflags -o $img "$fn"
+		if [ -n "$cpmtype" ]; then
+			echo
+			echo "  $label (CP/M $cpmtype):"
+			echo `cpmls -f $cpmtype $img | egrep -v '^[0-9]+:$'` | sort | fmt -w60 | sed 's,^,    ,'
+		fi
+	done
+}
+
+for fn in "$@"; do
+	show_imd "$fn"
+done
