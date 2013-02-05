@@ -22,6 +22,8 @@ END
 tempdir=`mktemp -d`
 trap 'rm -fr $tempdir' 0
 
+extractdir=""
+
 show_imd () {
 	fn="$1"
 	echo
@@ -71,23 +73,52 @@ show_imd () {
 		;;
 	esac
 
+	diskname="$(basename "$fn" | sed 's,\.[a-zA-Z]*$,,')"
 	for side in $sides; do
 		img=$tempdir/side$side.img
+		diskdir="$extractdir/$diskname"
 		if [ $side = both ]; then
 			sideflags=""
 			label="Both sides"
 		else
 			sideflags="-s $side"
 			label="Side $side"
+			diskdir="$diskdir/side$side"
 		fi
 		imdcat $flags $sideflags -o $img "$fn"
+
 		if [ -n "$cpmtype" ]; then
 			echo
 			echo "  $label (CP/M $cpmtype):"
 			echo `cpmls -f $cpmtype $img | egrep -v '^[0-9]+:$'` | sort | fmt -w60 | sed 's,^,    ,'
+
+			if [ -n "$extractdir" ]; then
+				for user in `seq 0 15`; do
+					dir="$diskdir/user$user"
+					mkdir -p "$dir"
+					cpmcp -f $cpmtype $img $user:'*.*' "$dir" 2>&1 | grep -v "can not open"
+					rmdir "$dir" 2>/dev/null
+				done
+			fi
 		fi
 	done
 }
+
+while getopts "x:" c; do
+	case $c in
+	x)
+		extractdir="$OPTARG"
+		;;
+	\?)
+		cat <<END
+usage: floppyinfo [OPTION]... IMAGE-FILE ...
+  -x DIR     extract contents of each disk into DIR
+END
+		exit 1
+		;;
+	esac
+done
+shift `expr $OPTIND - 1`
 
 for fn in "$@"; do
 	show_imd "$fn"
