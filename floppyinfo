@@ -40,25 +40,32 @@ show_imd () {
 		# RM SS 40T 16x128
 		flags="-B3"
 		sides="0"
-		cpmtype="rm380z"
+		cpmtype="rm-sd"
 		;;
 	163840)
 		# RM DS 40T 16x128
 		flags="-B3"
 		sides="0 1"
-		cpmtype="rm380z"
+		cpmtype="rm-sd"
 		;;
 	184320)
 		# RM SS 40T 9x512
 		flags="-B3"
 		sides="0"
-		cpmtype="rm480z"
+		cpmtype="rm-dd"
 		;;
 	368640)
 		# RM DS 40T 9x512
 		flags="-B3"
 		sides="0 1"
-		cpmtype="rm480z"
+		cpmtype="rm-dd"
+		;;
+	# FIXME: RM SS 80T 9x512? Need an example of one!
+	737280)
+		# RM DS 80T 9x512
+		flags="-B3"
+		sides="0 1"
+		cpmtype="rm-qd"
 		;;
 	327680)
 		# Alphatronic PC 40T 16x256
