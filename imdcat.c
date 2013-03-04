@@ -27,22 +27,39 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+typedef struct {
+    int start;
+    int end;
+} range;
+
 static struct args {
     const char *image_filename;
-    int boot_cyls;
     bool show_comment;
     const char *flat_filename;
-    int only_head;
     bool verbose;
     bool show_data;
+    range in_cyls, in_heads, in_sectors;
+    range out_cyls, out_heads, out_sectors;
 } args;
 
-static void update_range(int value, int *start, int *end) {
-    if (value < *start) {
-        *start = value;
+#define for_range(var, range) \
+    for(int var = (range)->start; var < (range)->end; var++)
+
+static void update_range(int value, range *r) {
+    if (value < r->start) {
+        r->start = value;
     }
-    if (value >= *end) {
-        *end = value + 1;
+    if (value >= r->end) {
+        r->end = value + 1;
+    }
+}
+
+static void apply_range_option(const range *in, range *out) {
+    if (in->start != -1) {
+        out->start = in->start;
+    }
+    if (in->end != -1) {
+        out->end = in->end;
     }
 }
 
@@ -107,28 +124,16 @@ static void write_flat(const disk_t *disk, FILE *flat) {
     int num_lumps = 0;
     int size_lumps = 0;
 
-    // The range of physical heads to look for.
-    int head_from = 0;
-    int head_to = disk->num_phys_heads;
-    if (args.only_head != -1) {
-        if (args.only_head < head_from || args.only_head >= head_to) {
-            die("Requested side %d has no data (only %d to %d)",
-                args.only_head, head_from, head_to - 1);
-        }
-        head_from = args.only_head;
-        head_to = args.only_head + 1;
-    }
-
-    // The range of C/H/S to use in the image (based on what we load).
-    int cyl_start = MAX_CYLS, cyl_end = 0;
-    int head_start = MAX_HEADS, head_end = 0;
-    int sec_start = MAX_SECS, sec_end = 0;
+    // The range of C/H/S to use in the output image (based on what we load).
+    range out_cyls = {MAX_CYLS, 0};
+    range out_heads = {MAX_HEADS, 0};
+    range out_sectors = {MAX_SECS, 0};
     int size_code = -1;
 
     // Find the range of cylinders, heads and sectors to write.
     // For each real sector, add a lump.
-    for (int phys_cyl = 0; phys_cyl < disk->num_phys_cyls; phys_cyl++) {
-        for (int phys_head = head_from; phys_head < head_to; phys_head++) {
+    for_range (phys_cyl, &args.in_cyls) {
+        for_range (phys_head, &args.in_heads) {
             const track_t *track = &disk->tracks[phys_cyl][phys_head];
 
             for (int phys_sec = 0; phys_sec < track->num_sectors; phys_sec++) {
@@ -140,18 +145,13 @@ static void write_flat(const disk_t *disk, FILE *flat) {
                 int head = phys_head;
                 int sec = sector->log_sector;
 
-                update_range(cyl, &cyl_start, &cyl_end);
-                update_range(head, &head_start, &head_end);
+                if (sec < args.in_sectors.start || sec >= args.in_sectors.end) {
+                    continue;
+                }
 
-                // Some formats have boot cylinders in a different format on
-                // the first few tracks -- sometimes it's useful to pretend
-                // these don't exist.
-                if (cyl < args.boot_cyls) continue;
-
-                // XXX: and when you're doing that, you *don't* want to count
-                // the logical sectors on the track you're ignoring. This is
-                // really ugly.
-                update_range(sec, &sec_start, &sec_end);
+                update_range(cyl, &out_cyls);
+                update_range(head, &out_heads);
+                update_range(sec, &out_sectors);
 
                 // FIXME: Option to include/exclude bad/deleted sectors
                 if (sector->status == SECTOR_MISSING) continue;
@@ -167,10 +167,15 @@ static void write_flat(const disk_t *disk, FILE *flat) {
         }
     }
 
+    // Override output ranges as specified in options.
+    apply_range_option(&args.out_cyls, &out_cyls);
+    apply_range_option(&args.out_heads, &out_heads);
+    apply_range_option(&args.out_sectors, &out_sectors);
+
     // For each sector that *should* exist, add a dummy lump.
-    for (int cyl = cyl_start; cyl < cyl_end; cyl++) {
-        for (int head = head_start; head < head_end; head++) {
-            for (int sec = sec_start; sec < sec_end; sec++) {
+    for_range (cyl, &out_cyls) {
+        for_range (head, &out_heads) {
+            for_range (sec, &out_sectors) {
                 add_lump(cyl, head, sec, NULL,
                          &lumps, &num_lumps, &size_lumps);
             }
@@ -213,43 +218,89 @@ static void write_flat(const disk_t *disk, FILE *flat) {
 
 static void usage(void) {
     fprintf(stderr, "usage: imdcat [OPTION]... IMAGE-FILE\n");
-    fprintf(stderr, "  -B CYLS    pretend the first CYLS cylinders are "
-                    "unreadable when writing\n");
-    fprintf(stderr, "  -c         write comment to stdout\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "  -n         write comment to stdout\n");
     fprintf(stderr, "  -o FILE    write sector data to flat file\n");
-    fprintf(stderr, "  -s SIDE    only write side SIDE (default both)\n");
     fprintf(stderr, "  -v         describe loaded image (default action)\n");
     fprintf(stderr, "  -x         show hexdump of data in image\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "Options for use with -o:\n");
+    fprintf(stderr, "  -c RANGE   limit input cylinders (default all)\n");
+    fprintf(stderr, "  -h RANGE   limit input heads (default all)\n");
+    fprintf(stderr, "  -s RANGE   limit input sectors (default all)\n");
+    fprintf(stderr, "  -C RANGE   output cylinders (default autodetect)\n");
+    fprintf(stderr, "  -H RANGE   output heads (default autodetect)\n");
+    fprintf(stderr, "  -S RANGE   output sectors (default autodetect)\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "Ranges are in the form FIRST:LAST, FIRST:, :LAST or "
+                    "ONLY, inclusive.\n");
     // FIXME: multiple input files, to be merged
-    // FIXME: -h          sort flat file by LH, LC, LS (default: LC, LH, LS)
-    // FIXME: specify ranges of input/output C/H/S (rather than -B)
+    // FIXME: sort flat file by LH, LC, LS (default: LC, LH, LS)
+    // FIXME: make the input limit options work with -x, etc.
     exit(1);
 }
 
+// Parse a range argument in the form "10:20" -- which would be parsed as
+// (10, 21).
+static void parse_range(const char *in, range *out) {
+    int value;
+    char *next;
+    const char *in_end = in + strlen(in);
+
+    value = strtoul(in, &next, 10);
+    if (next != in) {
+        // Found a first value.
+        out->start = value;
+    }
+
+    if (*next != ':') {
+        // No - found.
+        if (next != in && next == in_end) {
+            // Just a single number.
+            out->end = value + 1;
+            return;
+        } else {
+            usage();
+        }
+    }
+    ++next;
+
+    if (next == in_end) {
+        // No second value found.
+        return;
+    }
+    value = strtoul(next, &next, 10);
+    if (next != in_end) {
+        usage();
+    }
+    out->end = value + 1;
+}
+
 int main(int argc, char **argv) {
-    args.boot_cyls = 0;
     args.show_comment = false;
     args.flat_filename = NULL;
-    args.only_head = -1;
     args.verbose = false;
     args.show_data = false;
+    args.in_cyls.start = 0;
+    args.in_cyls.end = MAX_CYLS;
+    args.in_heads.start = 0;
+    args.in_heads.end = MAX_HEADS;
+    args.in_sectors.start = 0;
+    args.in_sectors.end = MAX_SECS; // XXX logical sectors?
+    args.out_cyls.start = args.out_cyls.end = -1;
+    args.out_heads.start = args.out_heads.end = -1;
+    args.out_sectors.start = args.out_sectors.end = -1;
 
     while (true) {
-        int opt = getopt(argc, argv, "B:co:s:vx");
+        int opt = getopt(argc, argv, "no:vxc:h:s:C:H:S:");
         if (opt == -1) break;
 
         switch (opt) {
-        case 'B':
-            args.boot_cyls = atoi(optarg);
-            break;
-        case 'c':
+        case 'n':
             args.show_comment = true;
             break;
         case 'o':
             args.flat_filename = optarg;
-            break;
-        case 's':
-            args.only_head = atoi(optarg);
             break;
         case 'v':
             args.verbose = true;
@@ -257,6 +308,26 @@ int main(int argc, char **argv) {
         case 'x':
             args.show_data = true;
             break;
+
+        case 'c':
+            parse_range(optarg, &args.in_cyls);
+            break;
+        case 'h':
+            parse_range(optarg, &args.in_heads);
+            break;
+        case 's':
+            parse_range(optarg, &args.in_sectors);
+            break;
+        case 'C':
+            parse_range(optarg, &args.out_cyls);
+            break;
+        case 'H':
+            parse_range(optarg, &args.out_heads);
+            break;
+        case 'S':
+            parse_range(optarg, &args.out_sectors);
+            break;
+
         default:
             usage();
         }

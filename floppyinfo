@@ -28,9 +28,9 @@ show_imd () {
 	fn="$1"
 	echo
 	echo "$fn"
-	imdcat -c "$fn" | tail -n +2 | sed 's,^,  | ,'
+	imdcat -n "$fn" | tail -n +2 | sed 's,^,  | ,'
 
-	imdcat -B3 -o $tempdir/whole.img "$fn"
+	imdcat -c2: -C0: -o $tempdir/whole.img "$fn"
 	size=`stat -c '%s' $tempdir/whole.img`
 
 	flags=""
@@ -38,33 +38,33 @@ show_imd () {
 	case $size in
 	81920)
 		# RM SS 40T 16x128
-		flags="-B3"
+		flags="-c2: -C0:"
 		sides="0"
 		cpmtype="rm-sd"
 		;;
 	163840)
 		# RM DS 40T 16x128
-		flags="-B3"
+		flags="-c2: -C0:"
 		sides="0 1"
 		cpmtype="rm-sd"
 		;;
 	184320)
 		# RM SS 40T 9x512
-		flags="-B3"
+		flags="-c2: -C0:"
 		sides="0"
 		cpmtype="rm-dd"
 		;;
 	# FIXME: 368640 is also MS-DOS 360k
 	368640)
 		# RM DS 40T 9x512
-		flags="-B3"
+		flags="-c2: -C0:"
 		sides="0 1"
 		cpmtype="rm-dd"
 		;;
 	# FIXME: RM SS 80T 9x512? Need an example of one!
 	737280)
 		# RM DS 80T 9x512
-		flags="-B3"
+		flags="-c2: -C0:"
 		sides="0 1"
 		cpmtype="rm-qd"
 		;;
@@ -90,7 +90,7 @@ show_imd () {
 			sideflags=""
 			label="Both sides"
 		else
-			sideflags="-s $side"
+			sideflags="-h $side"
 			label="Side $side"
 			diskdir="$diskdir/side$side"
 		fi
