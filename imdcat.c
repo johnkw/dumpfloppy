@@ -223,6 +223,7 @@ static void usage(void) {
     // FIXME: multiple input files, to be merged
     // FIXME: -h          sort flat file by LH, LC, LS (default: LC, LH, LS)
     // FIXME: specify ranges of input/output C/H/S (rather than -B)
+    exit(1);
 }
 
 int main(int argc, char **argv) {
@@ -258,13 +259,11 @@ int main(int argc, char **argv) {
             break;
         default:
             usage();
-            return 1;
         }
     }
 
     if (optind + 1 != argc) {
         usage();
-        return 1;
     }
     args.image_filename = argv[optind];
     if (!args.show_comment && args.flat_filename == NULL) {
