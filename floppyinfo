@@ -23,6 +23,7 @@ tempdir=`mktemp -d`
 trap 'rm -fr $tempdir' 0
 
 extractdir=""
+imdcatflags=""
 
 show_imd () {
 	fn="$1"
@@ -30,7 +31,7 @@ show_imd () {
 	echo "$fn"
 	imdcat -n "$fn" | tail -n +2 | sed 's,^,  | ,'
 
-	imdcat -c2: -C0: -o $tempdir/whole.img "$fn"
+	imdcat $imdcatflags -c2: -C0: -o $tempdir/whole.img "$fn"
 	size=`stat -c '%s' $tempdir/whole.img`
 
 	flags=""
@@ -94,7 +95,7 @@ show_imd () {
 			label="Side $side"
 			diskdir="$diskdir/side$side"
 		fi
-		imdcat $flags $sideflags -o $img "$fn"
+		imdcat $imdcatflags $flags $sideflags -o $img "$fn"
 
 		if [ -n "$cpmtype" ]; then
 			echo
@@ -113,14 +114,18 @@ show_imd () {
 	done
 }
 
-while getopts "x:" c; do
+while getopts "i:x:" c; do
 	case $c in
+	i)
+		imdcatflags="$OPTARG"
+		;;
 	x)
 		extractdir="$OPTARG"
 		;;
 	\?)
 		cat <<END
 usage: floppyinfo [OPTION]... IMAGE-FILE ...
+  -i FLAGS   pass extra options FLAGS to imdcat
   -x DIR     extract contents of each disk into DIR
 END
 		exit 1
