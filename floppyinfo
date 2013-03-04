@@ -54,6 +54,7 @@ show_imd () {
 		sides="0"
 		cpmtype="rm-dd"
 		;;
+	# FIXME: 368640 is also MS-DOS 360k
 	368640)
 		# RM DS 40T 9x512
 		flags="-B3"
@@ -74,6 +75,7 @@ show_imd () {
 		sides="both"
 		cpmtype="alpha"
 		;;
+	# FIXME: RM disks formatted differently on each side
 	*)
 		echo >&2 "$fn has unrecognised size: $size"
 		return 1
