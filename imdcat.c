@@ -38,6 +38,7 @@ static struct args {
     const char *flat_filename;
     bool verbose;
     bool show_data;
+    bool permissive;
     range in_cyls, in_heads, in_sectors;
     range out_cyls, out_heads, out_sectors;
 } args;
@@ -199,7 +200,7 @@ static void write_flat(const disk_t *disk, FILE *flat) {
             // Duplicate address -- which is OK if this is a dummy one.
             // But not if, say, we're extracting a disk that uses the same head
             // number on both sides.
-            if (lump->data != NULL) {
+            if (lump->data != NULL && !args.permissive) {
                 die("Two sectors found for cylinder %d head %d sector %d",
                     lump->cyl, lump->head, lump->sector);
             }
@@ -225,6 +226,7 @@ static void usage(void) {
     fprintf(stderr, "  -x         show hexdump of data in image\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Options for use with -o:\n");
+    fprintf(stderr, "  -p         ignore duplicated input sectors\n");
     fprintf(stderr, "  -c RANGE   limit input cylinders (default all)\n");
     fprintf(stderr, "  -h RANGE   limit input heads (default all)\n");
     fprintf(stderr, "  -s RANGE   limit input sectors (default all)\n");
@@ -281,6 +283,7 @@ int main(int argc, char **argv) {
     args.flat_filename = NULL;
     args.verbose = false;
     args.show_data = false;
+    args.permissive = false;
     args.in_cyls.start = 0;
     args.in_cyls.end = MAX_CYLS;
     args.in_heads.start = 0;
@@ -292,7 +295,7 @@ int main(int argc, char **argv) {
     args.out_sectors.start = args.out_sectors.end = -1;
 
     while (true) {
-        int opt = getopt(argc, argv, "no:vxc:h:s:C:H:S:");
+        int opt = getopt(argc, argv, "no:vxpc:h:s:C:H:S:");
         if (opt == -1) break;
 
         switch (opt) {
@@ -309,6 +312,9 @@ int main(int argc, char **argv) {
             args.show_data = true;
             break;
 
+        case 'p':
+            args.permissive = true;
+            break;
         case 'c':
             parse_range(optarg, &args.in_cyls);
             break;
