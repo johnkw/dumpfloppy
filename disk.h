@@ -40,10 +40,11 @@
 #define DISK_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 // Convert sector_size_code to size in bytes.
-int sector_bytes(int code);
+size_t sector_bytes(int code);
 
 typedef struct {
     uint8_t imd_mode;
@@ -85,10 +86,10 @@ typedef enum {
 typedef struct {
     track_status_t status;
     const data_mode_t *data_mode;
-    int phys_cyl;
-    int phys_head;
-    int num_sectors;
-    int sector_size_code; // FDC code
+    uint8_t phys_cyl;
+    uint8_t phys_head;
+    uint8_t num_sectors;
+    uint8_t sector_size_code; // FDC code
     sector_t sectors[MAX_SECS]; // indexed by physical sector
 } track_t;
 
@@ -112,7 +113,7 @@ void free_disk(disk_t *disk);
 void make_disk_comment(const char *program, const char *version, disk_t *disk);
 
 // Copy the layout of a track from another track on the same head.
-void copy_track_layout(const disk_t *disk, const track_t *src, track_t *dest);
+void copy_track_layout(const track_t *src, track_t *dest);
 
 // Find the sectors with the lowest and highest logical IDs in a track,
 // and whether the sectors have contiguous logical IDs.

@@ -86,14 +86,14 @@ static bool read_imd_track(FILE *image, disk_t *disk) {
     }
     track->phys_cyl = phys_cyl;
     track->phys_head = phys_head;
-    int num_sectors = header[3];
+    size_t num_sectors = header[3];
     track->num_sectors = num_sectors;
     track->sector_size_code = header[4];
     if (track->sector_size_code == 0xFF) {
         // FIXME: implement this (by having arbitrary sector sizes)
         die("IMD variable sector size extension not supported");
     }
-    int sector_size = sector_bytes(track->sector_size_code);
+    size_t sector_size = sector_bytes(track->sector_size_code);
 
     uint8_t sec_map[num_sectors];
     uint8_t cyl_map[num_sectors];
@@ -117,7 +117,7 @@ static bool read_imd_track(FILE *image, disk_t *disk) {
         memset(head_map, phys_head, num_sectors);
     }
 
-    for (int phys_sec = 0; phys_sec < num_sectors; phys_sec++) {
+    for (size_t phys_sec = 0; phys_sec < num_sectors; phys_sec++) {
         sector_t *sector = &track->sectors[phys_sec];
 
         sector->status = SECTOR_MISSING;
@@ -136,7 +136,7 @@ static bool read_imd_track(FILE *image, disk_t *disk) {
         if (type > 0) {
             type -= IMD_SDR_DATA;
 
-            sector->data = malloc(sector_size);
+            sector->data = (uint8_t*)malloc(sector_size);
             if (sector->data == NULL) {
                 die("malloc failed");
             }
@@ -228,7 +228,7 @@ void write_imd_track(const track_t *track, FILE *image) {
     const uint8_t header[] = {
         track->data_mode->imd_mode,
         track->phys_cyl,
-        flags | track->phys_head,
+        uint8_t(flags | track->phys_head),
         track->num_sectors,
         track->sector_size_code,
     };

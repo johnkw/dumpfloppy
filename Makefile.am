@@ -3,22 +3,22 @@ bin_PROGRAMS = \
 	imdcat
 
 common_sources = \
-	disk.c \
+	disk.cpp \
 	disk.h \
-	imd.c \
+	imd.cpp \
 	imd.h \
-	show.c \
+	show.cpp \
 	show.h \
-	util.c \
+	util.cpp \
 	util.h
 
 dumpfloppy_SOURCES = \
 	$(common_sources) \
-	dumpfloppy.c
+	dumpfloppy.cpp
 
 imdcat_SOURCES = \
 	$(common_sources) \
-	imdcat.c
+	imdcat.cpp
 
 AM_CPPFLAGS = \
-	-std=gnu99 -Wall -g
+	-Wall -Werror -Wextra -g

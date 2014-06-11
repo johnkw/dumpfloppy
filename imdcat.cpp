@@ -76,7 +76,7 @@ static void add_lump(int cyl, int head, int sector, const uint8_t *data,
     if (*num == *size) {
         // Expand the list.
         *size = (*size * 2) + 1;
-        *list = realloc(*list, (*size) * (sizeof **list));
+        *list = (lump_t*)realloc(*list, (*size) * (sizeof **list));
         if (*list == NULL) {
             die("realloc failed");
         }

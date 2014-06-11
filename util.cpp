@@ -44,7 +44,7 @@ char *alloc_sprintf(const char *format, ...) {
     int count = vsnprintf(&dummy, 0, format, ap);
     va_end(ap);
 
-    char *s = malloc(count + 1);
+    char *s = (char*)malloc(count + 1);
     if (s == NULL) {
         return NULL;
     }
@@ -58,7 +58,7 @@ char *alloc_sprintf(const char *format, ...) {
 
 void alloc_append(const char *append, int append_len,
                   char **buf, int *buf_len) {
-    *buf = realloc(*buf, *buf_len + append_len);
+    *buf = (char*)realloc(*buf, *buf_len + append_len);
     if (*buf == NULL && (*buf_len + append_len) != 0) {
         die("realloc failed");
     }

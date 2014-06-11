@@ -28,7 +28,9 @@
 #include "imd.h"
 #include "util.h"
 
+#include <assert.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <linux/fd.h>
 #include <linux/fdreg.h>
 #include <stdbool.h>
@@ -183,7 +185,7 @@ static bool fd_read(const track_t *track, const sector_t *sector,
 static sector_t *track_readid(track_t *track) {
     struct floppy_raw_cmd cmd;
 
-    if (track->num_sectors >= MAX_SECS) {
+    if (track->num_sectors == MAX_SECS-1) {
         die("track_readid read too many sectors");
     }
 
@@ -198,8 +200,9 @@ static sector_t *track_readid(track_t *track) {
     sector->log_cyl = cmd.reply[3];
     sector->log_head = cmd.reply[4];
     sector->log_sector = cmd.reply[5];
+    assert(cmd.reply[6] != UCHAR_MAX);
 
-    if (track->sector_size_code != -1
+    if (track->sector_size_code != UCHAR_MAX
         && track->sector_size_code != cmd.reply[6]) {
         // FIXME: handle this better -- e.g. discard all but first?
         // or keep them and write multiple .IMDs?
@@ -377,7 +380,7 @@ static bool read_track(track_t *track) {
             continue;
         }
 
-        uint8_t *data = malloc(sector_size);
+        uint8_t *data = (uint8_t*)malloc(sector_size);
         if (data == NULL) {
             die("malloc failed");
         }
@@ -563,13 +566,13 @@ static void process_floppy(void) {
                 // Don't assume a layout.
             } else if (cyl > 0) {
                 // Try the layout of the previous cyl on the same head.
-                copy_track_layout(&disk, &(disk.tracks[cyl - 1][head]), track);
+                copy_track_layout(&(disk.tracks[cyl - 1][head]), track);
             }
 
             // FIXME: option for this
             const int max_tries = 10;
-            for (int try = 0; ; try++) {
-                if (try == max_tries) {
+            for (int try_num = 0; ; try_num++) {
+                if (try_num == max_tries) {
                     // Tried too many times; give up.
                     break;
                 }

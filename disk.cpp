@@ -21,12 +21,13 @@
 #include "disk.h"
 #include "util.h"
 
+#include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <time.h>
 
-int sector_bytes(int code) {
+size_t sector_bytes(int code) {
     return 128 << code;
 }
 
@@ -50,7 +51,7 @@ const data_mode_t DATA_MODES[] = {
     { 6, "MFM-1000k", 3, false }, // FIXME: not in IMD spec
     // Rate 3 for FM isn't allowed.
 
-    { -1, NULL, 0, false }
+    { 0, NULL, 0, false } // NULL represents end of array.
 };
 
 static const sector_t EMPTY_SECTOR = {
@@ -75,10 +76,11 @@ void free_sector(sector_t *sector) {
 static const track_t EMPTY_TRACK = {
     .status = TRACK_UNKNOWN,
     .data_mode = NULL,
-    .phys_cyl = -1,
-    .phys_head = -1,
-    .num_sectors = -1,
-    .sector_size_code = -1,
+    .phys_cyl = UCHAR_MAX,
+    .phys_head = UCHAR_MAX,
+    .num_sectors = UCHAR_MAX,
+    .sector_size_code = UCHAR_MAX,
+    .sectors = {},
 };
 
 void init_track(int phys_cyl, int phys_head, track_t *track) {
@@ -103,6 +105,7 @@ static const disk_t EMPTY_DISK = {
     .comment_len = -1,
     .num_phys_cyls = 0,
     .num_phys_heads = 0,
+    .tracks = {},
 };
 
 void init_disk(disk_t *disk) {
@@ -139,7 +142,7 @@ void make_disk_comment(const char *program, const char *version, disk_t *disk) {
     disk->comment_len = strlen(disk->comment);
 }
 
-void copy_track_layout(const disk_t *disk, const track_t *src, track_t *dest) {
+void copy_track_layout(const track_t *src, track_t *dest) {
     if (src->status == TRACK_UNKNOWN) return;
 
     free_track(dest);
