@@ -34,26 +34,21 @@ void die(const char *format, ...) {
     exit(1);
 }
 
-// FIXME: add checked malloc
-
-char *alloc_sprintf(const char *format, ...) {
+std::string str_sprintf(const char *format, ...) {
     va_list ap;
 
+    char* buf;
     va_start(ap, format);
-    char dummy;
-    int count = vsnprintf(&dummy, 0, format, ap);
+    int len = vasprintf(&buf, format, ap);
     va_end(ap);
 
-    char *s = (char*)malloc(count + 1);
-    if (s == NULL) {
-        return NULL;
+    if (len == -1) {
+        die("vasprintf");
     }
 
-    va_start(ap, format);
-    vsnprintf(s, count + 1, format, ap);
-    va_end(ap);
-
-    return s;
+    std::string ret(buf, len);
+    free(buf);
+    return ret;
 }
 
 void alloc_append(const char *append, int append_len,

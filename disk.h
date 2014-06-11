@@ -42,6 +42,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string>
 
 // Convert sector_size_code to size in bytes.
 size_t sector_bytes(int code);
@@ -99,8 +100,7 @@ void free_track(track_t *track);
 #define MAX_CYLS 256
 #define MAX_HEADS 2
 typedef struct {
-    char *comment; // allocate with malloc
-    int comment_len; // in bytes, not including terminator
+    std::string comment;
     int num_phys_cyls;
     int num_phys_heads;
     track_t tracks[MAX_CYLS][MAX_HEADS]; // indexed by physical cyl/head
@@ -118,7 +118,7 @@ void copy_track_layout(const track_t *src, track_t *dest);
 // Find the sectors with the lowest and highest logical IDs in a track,
 // and whether the sectors have contiguous logical IDs.
 void track_scan_sectors(track_t *track,
-                        sector_t **lowest, sector_t **highest,
+                        sector_t **lowest,
                         bool *contiguous);
 
 // Return whether two sectors have the same logical address.

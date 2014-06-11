@@ -346,9 +346,9 @@ static bool read_track(track_t *track) {
     printf("Read  %2d.%d:", track->phys_cyl, track->phys_head);
     fflush(stdout);
 
-    sector_t *lowest_sector, *highest_sector;
+    sector_t *lowest_sector;
     bool contiguous;
-    track_scan_sectors(track, &lowest_sector, &highest_sector, &contiguous);
+    track_scan_sectors(track, &lowest_sector, &contiguous);
 
     const int sector_size = sector_bytes(track->sector_size_code);
     const int track_size = sector_size * track->num_sectors;
@@ -527,7 +527,7 @@ static void process_floppy(void) {
                 die("read from stdin failed");
             }
 
-            alloc_append(buf, count, &disk.comment, &disk.comment_len);
+            disk.comment.append(buf, count);
         }
     }
 

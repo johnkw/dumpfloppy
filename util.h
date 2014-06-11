@@ -24,6 +24,7 @@
 #include <errno.h>
 #include <stddef.h>
 #include <string.h>
+#include <string>
 
 void die(const char *format, ...);
 #define die_errno(format, ...) \
@@ -31,10 +32,6 @@ void die(const char *format, ...);
 
 // malloc a string (of the right size) and printf into it.
 // (Similar to GNU asprintf.)
-char *alloc_sprintf(const char *format, ...);
-
-// Append data to a malloc-d buffer, reallocing it if necessary.
-void alloc_append(const char *append, int append_len,
-                  char **buf, int *buf_len);
+std::string str_sprintf(const char *format, ...);
 
 #endif

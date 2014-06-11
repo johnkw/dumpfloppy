@@ -113,8 +113,8 @@ void show_track_data(const track_t *track, FILE *out) {
 }
 
 void show_comment(const disk_t *disk, FILE *out) {
-    if (disk->comment) {
-        fwrite(disk->comment, 1, disk->comment_len, out);
+    if (!disk->comment.empty()) {
+        fwrite(disk->comment.c_str(), 1, disk->comment.length(), out);
     }
 }
 

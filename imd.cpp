@@ -180,14 +180,14 @@ void read_imd(FILE *image, disk_t *disk) {
     free_disk(disk);
 
     // Read the comment.
-    disk->comment = NULL;
+    char* read_buf;
     size_t dummy = 0;
-    ssize_t count = getdelim(&disk->comment, &dummy, IMD_END_OF_COMMENT, image);
-    disk->comment_len = count - 1;
-    if (count < 0 || disk->comment[disk->comment_len] != IMD_END_OF_COMMENT) {
+    ssize_t count = getdelim(&read_buf, &dummy, IMD_END_OF_COMMENT, image);
+    if (count < 0 || read_buf[count-1] != IMD_END_OF_COMMENT) {
         die("Couldn't find IMD comment delimiter");
     }
-    disk->comment[disk->comment_len] = '\0';
+    disk->comment = std::string(read_buf, count-1);
+    free(read_buf); // free in accordance with getdelim spec
 
     disk->num_phys_cyls = 0;
     disk->num_phys_heads = 0;
@@ -198,8 +198,8 @@ void read_imd(FILE *image, disk_t *disk) {
 }
 
 void write_imd_header(const disk_t *disk, FILE *image) {
-    if (disk->comment != NULL) {
-        fwrite(disk->comment, 1, disk->comment_len, image);
+    if (!disk->comment.empty()) {
+        fwrite(disk->comment.c_str(), 1, disk->comment.length(), image);
     }
     fputc(IMD_END_OF_COMMENT, image);
 }

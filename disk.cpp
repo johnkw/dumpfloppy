@@ -101,8 +101,7 @@ void free_track(track_t *track) {
 }
 
 static const disk_t EMPTY_DISK = {
-    .comment = NULL,
-    .comment_len = -1,
+    .comment = "",
     .num_phys_cyls = 0,
     .num_phys_heads = 0,
     .tracks = {},
@@ -118,8 +117,7 @@ void init_disk(disk_t *disk) {
 }
 
 void free_disk(disk_t *disk) {
-    free(disk->comment);
-    disk->comment = NULL;
+    disk->comment.clear();
     for (int cyl = 0; cyl < MAX_CYLS; cyl++) {
         for (int head = 0; head < MAX_HEADS; head++) {
             free_track(&(disk->tracks[cyl][head]));
@@ -131,15 +129,11 @@ void make_disk_comment(const char *program, const char *version, disk_t *disk) {
     time_t now = time(NULL);
     const struct tm *local = localtime(&now);
 
-    disk->comment = alloc_sprintf(
+    disk->comment = str_sprintf(
         "%s %s: %02d/%02d/%04d %02d:%02d:%02d\r\n",
         program, version,
         local->tm_mday, local->tm_mon + 1, local->tm_year + 1900,
         local->tm_hour, local->tm_min, local->tm_sec);
-    if (disk->comment == NULL) {
-        die("out of memory");
-    }
-    disk->comment_len = strlen(disk->comment);
 }
 
 void copy_track_layout(const track_t *src, track_t *dest) {
@@ -164,7 +158,7 @@ void copy_track_layout(const track_t *src, track_t *dest) {
 }
 
 void track_scan_sectors(track_t *track,
-                        sector_t **lowest, sector_t **highest,
+                        sector_t **lowest,
                         bool *contiguous) {
     bool seen[MAX_SECS];
     for (int i = 0; i < MAX_SECS; i++) {
@@ -173,7 +167,6 @@ void track_scan_sectors(track_t *track,
 
     *lowest = NULL;
     int lowest_id = MAX_SECS;
-    *highest = NULL;
     int highest_id = 0;
     for (int i = 0; i < track->num_sectors; i++) {
         sector_t *sector = &(track->sectors[i]);
@@ -187,7 +180,6 @@ void track_scan_sectors(track_t *track,
         }
         if (id > highest_id) {
             highest_id = id;
-            *highest = sector;
         }
     }
 
