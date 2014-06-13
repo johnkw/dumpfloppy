@@ -122,22 +122,20 @@ void copy_track_layout(const track_t *src, track_t *dest) {
     }
 }
 
-void track_scan_sectors(track_t *track,
-                        sector_t **lowest,
+void track_scan_sectors(const track_t* const track,
+                        const sector_t **lowest,
                         bool *contiguous) {
-    bool seen[MAX_SECS];
-    for (int i = 0; i < MAX_SECS; i++) {
-        seen[i] = false;
-    }
+    bool seen[MAX_SECS] = {false};
 
     *lowest = NULL;
     int lowest_id = MAX_SECS;
     int highest_id = 0;
     for (int i = 0; i < track->num_sectors; i++) {
-        sector_t *sector = &(track->sectors[i]);
+        const sector_t* sector = &(track->sectors[i]);
         const int id = sector->log_sector;
-
-        seen[sector->log_sector] = true;
+        assert(id < MAX_SECS);
+        assert(!seen[id]); // How would we handle getting the same sector id twice?
+        seen[id] = true;
 
         if (id < lowest_id) {
             lowest_id = id;

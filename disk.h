@@ -115,8 +115,8 @@ void copy_track_layout(const track_t *src, track_t *dest);
 
 // Find the sectors with the lowest and highest logical IDs in a track,
 // and whether the sectors have contiguous logical IDs.
-void track_scan_sectors(track_t *track,
-                        sector_t **lowest,
+void track_scan_sectors(const track_t* const track,
+                        const sector_t **lowest,
                         bool *contiguous);
 
 // Return whether two sectors have the same logical address.

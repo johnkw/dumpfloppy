@@ -347,7 +347,7 @@ static bool read_track(track_t *track) {
     printf("Read  %2d.%d:", track->phys_cyl, track->phys_head);
     fflush(stdout);
 
-    sector_t *lowest_sector;
+    const sector_t* lowest_sector;
     bool contiguous;
     track_scan_sectors(track, &lowest_sector, &contiguous);
 
