@@ -70,11 +70,11 @@ typedef struct {
     uint8_t log_head;
     uint8_t log_sector;
     bool deleted;
-    uint8_t *data; // NULL if not read yet; allocate with malloc
+    std::basic_string<uint8_t> data;
 } sector_t;
 
 void init_sector(sector_t *sector);
-void free_sector(sector_t *sector);
+void assert_free_sector(const sector_t* const sector);
 
 typedef enum {
     TRACK_UNKNOWN = 0,
@@ -95,7 +95,6 @@ typedef struct {
 } track_t;
 
 void init_track(int phys_cyl, int phys_head, track_t *track);
-void free_track(track_t *track);
 
 #define MAX_CYLS 256
 #define MAX_HEADS 2
@@ -107,7 +106,6 @@ typedef struct {
 } disk_t;
 
 void init_disk(disk_t *disk);
-void free_disk(disk_t *disk);
 
 // Create a ImageDisk-style timestamp comment.
 void make_disk_comment(const char *program, const char *version, disk_t *disk);

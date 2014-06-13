@@ -1,5 +1,6 @@
 AC_PREREQ(2.59)
 AC_INIT(dumpfloppy, 1, ats@offog.org)
+${CXXFLAGS=""}
 AC_CONFIG_SRCDIR([dumpfloppy.cpp])
 
 AM_INIT_AUTOMAKE([foreign])

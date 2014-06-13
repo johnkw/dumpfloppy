@@ -23,9 +23,11 @@
 #include "show.h"
 #include "util.h"
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <map>
 
 typedef struct {
     int start;
@@ -64,66 +66,25 @@ static void apply_range_option(const range *in, range *out) {
     }
 }
 
-typedef struct {
-    int cyl; // either log or phys, depending on options
+class SHC_t {
+public:
+    int cyl;
     int head;
-    int sector;
-    const uint8_t *data; // NULL if this is a dummy
-} lump_t;
-
-static void add_lump(int cyl, int head, int sector, const uint8_t *data,
-                     lump_t **list, int *num, int *size) {
-    if (*num == *size) {
-        // Expand the list.
-        *size = (*size * 2) + 1;
-        *list = (lump_t*)realloc(*list, (*size) * (sizeof **list));
-        if (*list == NULL) {
-            die("realloc failed");
-        }
+    int sec;
+    SHC_t(int c, int h, int s) : cyl(c), head(h), sec(s) {}
+    bool operator <(const SHC_t& rhs) const {
+        if (this->cyl  < rhs.cyl)  return true;
+        if (this->cyl  > rhs.cyl)  return false;
+        if (this->head < rhs.head) return true;
+        if (this->head > rhs.head) return false;
+        if (this->sec  < rhs.sec)  return true;
+                                   return false;
     }
-
-    lump_t *lump = &(*list)[*num];
-    lump->cyl = cyl;
-    lump->head = head;
-    lump->sector = sector;
-    lump->data = data;
-    (*num)++;
-}
-
-static int cmp_lump_addr(const lump_t *left, const lump_t *right) {
-    int d;
-
-    d = left->cyl - right->cyl;
-    if (d != 0) return d;
-
-    d = left->head - right->head;
-    if (d != 0) return d;
-
-    d = left->sector - right->sector;
-    if (d != 0) return d;
-
-    return 0;
-}
-
-static int cmp_lump(const void *left_v, const void *right_v) {
-    const lump_t *left = (const lump_t *) left_v;
-    const lump_t *right = (const lump_t *) right_v;
-
-    int d = cmp_lump_addr(left, right);
-    if (d != 0) return d;
-
-    // A lump with data should sort before a lump without data.
-    if (left->data != NULL && right->data == NULL) return -1;
-    if (left->data == NULL && right->data != NULL) return 1;
-
-    return 0;
-}
+};
 
 static void write_flat(const disk_t *disk, FILE *flat) {
-    // The list of lumps to write.
-    lump_t *lumps = NULL;
-    int num_lumps = 0;
-    int size_lumps = 0;
+    typedef std::map<SHC_t, std::basic_string<uint8_t> > disk_image_t;
+    disk_image_t disk_image;
 
     // The range of C/H/S to use in the output image (based on what we load).
     range out_cyls = {MAX_CYLS, 0};
@@ -157,13 +118,20 @@ static void write_flat(const disk_t *disk, FILE *flat) {
                 // FIXME: Option to include/exclude bad/deleted sectors
                 if (sector->status == SECTOR_MISSING) continue;
 
-                add_lump(cyl, head, sec, sector->data,
-                         &lumps, &num_lumps, &size_lumps);
-
-                if (size_code != -1 && track->sector_size_code != size_code) {
-                    die("Tracks have inconsistent sector sizes");
+                SHC_t SHC(cyl, head, sec);
+                if (disk_image.find(SHC) != disk_image.end() && !args.permissive) {
+                    die("Two sectors found for cylinder %d head %d sector %d", cyl, head, sec);
                 }
-                size_code = track->sector_size_code;
+                assert(sector->data.length() == sector_bytes(track->sector_size_code));
+                disk_image[SHC] = sector->data;
+
+                // Sanity check that all the sectors are the same size. TODO: Is it really a problem if some are different sizes?
+                if (size_code == -1) {
+                    size_code = track->sector_size_code;
+                } else if (track->sector_size_code != size_code) {
+                    printf("Tracks have inconsistent sector sizes: %d != %d for %d,%d,%d,%d\n",
+                        track->sector_size_code, size_code, cyl, head, sec, track->num_sectors);
+                }
             }
         }
     }
@@ -173,48 +141,21 @@ static void write_flat(const disk_t *disk, FILE *flat) {
     apply_range_option(&args.out_heads, &out_heads);
     apply_range_option(&args.out_sectors, &out_sectors);
 
-    // For each sector that *should* exist, add a dummy lump.
+    std::basic_string<uint8_t> dummy_data(sector_bytes(size_code), 0xFF); // Data to write where we don't have a real sector.
+
+    // Go through the disk_image, and write all sectors out.
     for_range (cyl, &out_cyls) {
         for_range (head, &out_heads) {
             for_range (sec, &out_sectors) {
-                add_lump(cyl, head, sec, NULL,
-                         &lumps, &num_lumps, &size_lumps);
+                // For each sector that *should* exist, add a dummy lump.
+                disk_image_t::iterator sec_data_it = disk_image.find(SHC_t(cyl, head, sec));
+                fwrite(
+                    sec_data_it == disk_image.end() ? dummy_data.data() : sec_data_it->second.data(),
+                    1, sector_bytes(size_code), flat
+                );
             }
         }
     }
-
-    // Sort the whole lot.
-    qsort(lumps, num_lumps, sizeof *lumps, cmp_lump);
-
-    // Data to write where we don't have a real sector.
-    const int sector_size = sector_bytes(size_code);
-    uint8_t dummy_data[sector_size];
-    memset(dummy_data, 0xFF, sector_size);
-
-    // Go through the list, and write the first lump that comes up with each
-    // address.
-    for (int i = 0; i < num_lumps; i++) {
-        const lump_t *lump = &lumps[i];
-
-        if (i > 0 && cmp_lump_addr(&lumps[i - 1], lump) == 0) {
-            // Duplicate address -- which is OK if this is a dummy one.
-            // But not if, say, we're extracting a disk that uses the same head
-            // number on both sides.
-            if (lump->data != NULL && !args.permissive) {
-                die("Two sectors found for cylinder %d head %d sector %d",
-                    lump->cyl, lump->head, lump->sector);
-            }
-            continue;
-        }
-
-        const uint8_t *data = lump->data;
-        if (data == NULL) {
-            data = dummy_data;
-        }
-        fwrite(data, 1, sector_size, flat);
-    }
-
-    free(lumps);
 }
 
 static void usage(void) {
@@ -350,14 +291,11 @@ int main(int argc, char **argv) {
         args.verbose = true;
     }
 
-    disk_t disk;
-    init_disk(&disk);
-
     FILE *f = fopen(args.image_filename, "rb");
     if (f == NULL) {
         die_errno("cannot open %s", args.image_filename);
     }
-    read_imd(f, &disk);
+    disk_t disk = read_imd(f);
     fclose(f);
 
     if (args.show_comment && !args.verbose) {
@@ -373,8 +311,6 @@ int main(int argc, char **argv) {
         write_flat(&disk, f);
         fclose(f);
     }
-
-    free_disk(&disk);
 
     return 0;
 }

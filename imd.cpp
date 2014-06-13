@@ -24,6 +24,7 @@
 #include "imd.h"
 #include "util.h"
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -89,6 +90,9 @@ static bool read_imd_track(FILE *image, disk_t *disk) {
     size_t num_sectors = header[3];
     track->num_sectors = num_sectors;
     track->sector_size_code = header[4];
+    if (track->num_sectors == 0) {
+        return true; // Nothing else to do. (Note: a completely unreadable track will have no sectors and sector_size_code 0xFF.)
+    }
     if (track->sector_size_code == 0xFF) {
         // FIXME: implement this (by having arbitrary sector sizes)
         die("IMD variable sector size extension not supported");
@@ -125,7 +129,7 @@ static bool read_imd_track(FILE *image, disk_t *disk) {
         sector->log_head = head_map[phys_sec];
         sector->log_sector = sec_map[phys_sec];
         sector->deleted = false;
-        sector->data = NULL;
+        sector->data.clear();
 
         uint8_t type, orig_type;
         if (fread(&type, 1, 1, image) != 1) {
@@ -135,11 +139,6 @@ static bool read_imd_track(FILE *image, disk_t *disk) {
 
         if (type > 0) {
             type -= IMD_SDR_DATA;
-
-            sector->data = (uint8_t*)malloc(sector_size);
-            if (sector->data == NULL) {
-                die("malloc failed");
-            }
 
             if (type >= IMD_SDR_IS_ERROR) {
                 type -= IMD_SDR_IS_ERROR;
@@ -160,11 +159,13 @@ static bool read_imd_track(FILE *image, disk_t *disk) {
                 if (fread(&fill, 1, 1, image) != 1) {
                     die("Couldn't read IMD compressed sector data");
                 }
-                memset(sector->data, fill, sector_size);
+                sector->data.assign(sector_size, fill);
             } else {
-                if (fread(sector->data, 1, sector_size, image) != sector_size) {
+                uint8_t data_buf[sector_size];
+                if (fread(data_buf, 1, sector_size, image) != sector_size) {
                     die("Couldn't read IMD sector data");
                 }
+                sector->data.assign(data_buf, sector_size);
             }
 
             if (type != 0) {
@@ -176,8 +177,9 @@ static bool read_imd_track(FILE *image, disk_t *disk) {
     return true;
 }
 
-void read_imd(FILE *image, disk_t *disk) {
-    free_disk(disk);
+disk_t read_imd(FILE *image) {
+    disk_t disk;
+    init_disk(&disk);
 
     // Read the comment.
     char* read_buf;
@@ -186,15 +188,16 @@ void read_imd(FILE *image, disk_t *disk) {
     if (count < 0 || read_buf[count-1] != IMD_END_OF_COMMENT) {
         die("Couldn't find IMD comment delimiter");
     }
-    disk->comment = std::string(read_buf, count-1);
+    disk.comment = std::string(read_buf, count-1);
     free(read_buf); // free in accordance with getdelim spec
 
-    disk->num_phys_cyls = 0;
-    disk->num_phys_heads = 0;
+    disk.num_phys_cyls = 0;
+    disk.num_phys_heads = 0;
 
-    while (read_imd_track(image, disk)) {
+    while (read_imd_track(image, &disk)) {
         // Nothing.
     }
+    return disk;
 }
 
 void write_imd_header(const disk_t *disk, FILE *image) {
@@ -242,7 +245,6 @@ void write_imd_track(const track_t *track, FILE *image) {
         fwrite(head_map, 1, track->num_sectors, image);
     }
 
-    const int sector_size = sector_bytes(track->sector_size_code);
     for (int i = 0; i < track->num_sectors; i++) {
         const sector_t *sector = &(track->sectors[i]);
 
@@ -261,10 +263,11 @@ void write_imd_track(const track_t *track, FILE *image) {
             type += IMD_SDR_IS_DELETED;
         }
 
-        if (sector->data != NULL) {
+        if (!sector->data.empty()) {
+            assert(sector->data.length() == sector_bytes(track->sector_size_code));
             const uint8_t first = sector->data[0];
             bool can_compress = true;
-            for (int i = 0; i < sector_size; i++) {
+            for (unsigned int i = 0; i < sector->data.length(); i++) {
                 if (sector->data[i] != first) {
                     can_compress = false;
                 }
@@ -275,7 +278,7 @@ void write_imd_track(const track_t *track, FILE *image) {
                 fputc(first, image);
             } else {
                 fputc(type, image);
-                fwrite(sector->data, 1, sector_size, image);
+                fwrite(sector->data.data(), 1, sector->data.length(), image);
             }
         } else {
             fputc(type, image);

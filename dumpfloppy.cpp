@@ -196,19 +196,20 @@ static sector_t *track_readid(track_t *track) {
     } while (args.ignore_sector == cmd.reply[5]);
 
     sector_t *sector = &(track->sectors[track->num_sectors]);
-    free_sector(sector);
+    assert_free_sector(sector);
     sector->log_cyl = cmd.reply[3];
     sector->log_head = cmd.reply[4];
     sector->log_sector = cmd.reply[5];
     assert(cmd.reply[6] != UCHAR_MAX);
 
-    if (track->sector_size_code != UCHAR_MAX
-        && track->sector_size_code != cmd.reply[6]) {
+    if (track->sector_size_code == UCHAR_MAX) {
+        printf("Got new sector_size_code %d\n", cmd.reply[6]);
+        track->sector_size_code = cmd.reply[6];
+    } else if (track->sector_size_code != cmd.reply[6]) {
         // FIXME: handle this better -- e.g. discard all but first?
         // or keep them and write multiple .IMDs?
-        die("mixed sector formats within track");
+        die("mixed sector formats within track %d != %d", track->sector_size_code, cmd.reply[6]);
     }
-    track->sector_size_code = cmd.reply[6];
 
     track->num_sectors++;
     return sector;
@@ -216,7 +217,7 @@ static sector_t *track_readid(track_t *track) {
 
 // Identify the data mode and sector layout of a track.
 static bool probe_track(track_t *track) {
-    free_track(track);
+    assert(track->status == TRACK_UNKNOWN);
 
     printf("Probe %2d.%d:", track->phys_cyl, track->phys_head);
     fflush(stdout);
@@ -380,39 +381,32 @@ static bool read_track(track_t *track) {
             continue;
         }
 
-        uint8_t *data = (uint8_t*)malloc(sector_size);
-        if (data == NULL) {
-            die("malloc failed");
-        }
-        memset(data, 0, sector_size);
-
         printf("%3d", sector->log_sector);
         fflush(stdout);
 
         if (read_whole_track) {
             // We read this sector as part of the whole track. Success!
             const int rel_sec = sector->log_sector - lowest_sector->log_sector;
-            memcpy(data, track_data + (sector_size * rel_sec), sector_size);
 
             sector->status = SECTOR_GOOD;
-            free(sector->data);
-            sector->data = data;
+            sector->data.assign(track_data + (sector_size * rel_sec), sector_size);
             sector->deleted = false;
 
             printf("*");
             continue;
         }
 
+        uint8_t data_buf[sector_size];
+        bool have_data = true;
+
         // Read a single sector.
-        if (!fd_read(track, sector, data, sector_size, &cmd)) {
+        if (!fd_read(track, sector, data_buf, sector_size, &cmd)) {
             // 0x20 is CRC Error in Data Field.
             if ((cmd.reply[2] & 0x20) != 0) {
                 // Bad data. Better than nothing, but we'll want to try again.
                 sector->status = SECTOR_BAD;
             } else {
-                // No data.
-                free(data);
-                data = NULL;
+                have_data = false; // No data.
             }
             all_ok = false;
         } else {
@@ -420,12 +414,11 @@ static bool read_track(track_t *track) {
             sector->status = SECTOR_GOOD;
         }
 
-        if (data != NULL) {
+        if (have_data) {
             // 0x40 is Control Mark -- a deleted sector was read.
             sector->deleted = (cmd.reply[2] & 0x40) != 0;
 
-            free(sector->data);
-            sector->data = data;
+            sector->data.assign(data_buf, sector_size);
 
             if (sector->status == SECTOR_BAD) {
                 printf("?");
@@ -585,6 +578,7 @@ static void process_floppy(void) {
                 if (track->status == TRACK_GUESSED) {
                     // Maybe we guessed wrong. Probe and try again.
                     track->status = TRACK_UNKNOWN;
+                    track->sector_size_code = UCHAR_MAX;
                 }
             }
 
@@ -598,7 +592,6 @@ static void process_floppy(void) {
     if (image != NULL) {
         fclose(image);
     }
-    free_disk(&disk);
     close(dev_fd);
 }
 

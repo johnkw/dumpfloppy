@@ -21,4 +21,4 @@ imdcat_SOURCES = \
 	imdcat.cpp
 
 AM_CPPFLAGS = \
-	-Wall -Werror -Wextra -g
+	-Wall -Werror -Wextra -g -O0

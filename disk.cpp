@@ -21,6 +21,7 @@
 #include "disk.h"
 #include "util.h"
 
+#include <assert.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -54,73 +55,39 @@ const data_mode_t DATA_MODES[] = {
     { 0, NULL, 0, false } // NULL represents end of array.
 };
 
-static const sector_t EMPTY_SECTOR = {
-    .status = SECTOR_MISSING,
-    .log_cyl = 0xFF,
-    .log_head = 0xFF,
-    .log_sector = 0xFF,
-    .deleted = false,
-    .data = NULL,
-};
-
 void init_sector(sector_t *sector) {
-    *sector = EMPTY_SECTOR;
-}
-
-void free_sector(sector_t *sector) {
     sector->status = SECTOR_MISSING;
-    free(sector->data);
-    sector->data = NULL;
+    sector->log_cyl = 0xFF;
+    sector->log_head = 0xFF;
+    sector->log_sector = 0xFF;
+    sector->deleted = false;
+    sector->data.clear();
 }
 
-static const track_t EMPTY_TRACK = {
-    .status = TRACK_UNKNOWN,
-    .data_mode = NULL,
-    .phys_cyl = UCHAR_MAX,
-    .phys_head = UCHAR_MAX,
-    .num_sectors = UCHAR_MAX,
-    .sector_size_code = UCHAR_MAX,
-    .sectors = {},
-};
+void assert_free_sector(const sector_t* const sector) {
+    assert(sector->status == SECTOR_MISSING);
+    assert(sector->data.empty());
+}
 
 void init_track(int phys_cyl, int phys_head, track_t *track) {
-    *track = EMPTY_TRACK;
+    track->status = TRACK_UNKNOWN,
+    track->data_mode = NULL,
     track->phys_cyl = phys_cyl;
     track->phys_head = phys_head;
+    track->num_sectors = 0;
+    track->sector_size_code = UCHAR_MAX;
     for (int i = 0; i < MAX_SECS; i++) {
         init_sector(&(track->sectors[i]));
     }
 }
 
-void free_track(track_t *track) {
-    track->status = TRACK_UNKNOWN;
-    track->num_sectors = 0;
-    for (int i = 0; i < MAX_SECS; i++) {
-        free_sector(&(track->sectors[i]));
-    }
-}
-
-static const disk_t EMPTY_DISK = {
-    .comment = "",
-    .num_phys_cyls = 0,
-    .num_phys_heads = 0,
-    .tracks = {},
-};
-
 void init_disk(disk_t *disk) {
-    *disk = EMPTY_DISK;
+    disk->comment = "";
+    disk->num_phys_cyls = 0;
+    disk->num_phys_heads = 0;
     for (int cyl = 0; cyl < MAX_CYLS; cyl++) {
         for (int head = 0; head < MAX_HEADS; head++) {
             init_track(cyl, head, &(disk->tracks[cyl][head]));
-        }
-    }
-}
-
-void free_disk(disk_t *disk) {
-    disk->comment.clear();
-    for (int cyl = 0; cyl < MAX_CYLS; cyl++) {
-        for (int head = 0; head < MAX_HEADS; head++) {
-            free_track(&(disk->tracks[cyl][head]));
         }
     }
 }
@@ -138,8 +105,6 @@ void make_disk_comment(const char *program, const char *version, disk_t *disk) {
 
 void copy_track_layout(const track_t *src, track_t *dest) {
     if (src->status == TRACK_UNKNOWN) return;
-
-    free_track(dest);
 
     dest->status = TRACK_GUESSED;
     dest->data_mode = src->data_mode;

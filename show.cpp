@@ -60,7 +60,7 @@ void show_track(const track_t *track, FILE *out) {
     }
 }
 
-void show_track_data(const track_t *track, FILE *out) {
+void show_track_data(const track_t* const track, FILE* const out) {
     for (int phys_sec = 0; phys_sec < track->num_sectors; phys_sec++) {
         const sector_t *sector = &track->sectors[phys_sec];
         if (sector->status == SECTOR_MISSING) continue;
@@ -76,7 +76,6 @@ void show_track_data(const track_t *track, FILE *out) {
 
         // The format here is based on "hexdump -C".
         // (Although it's not smart enough to fold identical data.)
-        const uint8_t *data = sector->data;
         const int line_len = 16;
         for (int i = 0; i < data_len; i += line_len) {
             fprintf(out, "%04x ", i);
@@ -84,7 +83,7 @@ void show_track_data(const track_t *track, FILE *out) {
             for (int j = 0; j < line_len; j++) {
                 const int pos = i + j;
                 if (pos < data_len) {
-                    fprintf(out, " %02x", data[pos]);
+                    fprintf(out, " %02x", sector->data[pos]);
                 } else {
                     fprintf(out, "   ");
                 }
@@ -94,7 +93,7 @@ void show_track_data(const track_t *track, FILE *out) {
             for (int j = 0; j < line_len; j++) {
                 const int pos = i + j;
                 if (pos < data_len) {
-                    const uint8_t c = data[pos];
+                    const uint8_t c = sector->data[pos];
                     if (c >= 32 && c < 127) {
                         fprintf(out, "%c", c);
                     } else {
