@@ -52,6 +52,7 @@ static struct args {
     bool read_comment;
     int ignore_sector;
     const char *image_filename;
+    int max_tries;
 } args;
 static int dev_fd;
 
@@ -409,6 +410,7 @@ static bool read_track(track_t *track, bool retrying) {
                 // Bad data. Better than nothing, but we'll want to try again.
                 sector->status = SECTOR_BAD;
                 if (retrying && data_t(data_buf, sector_size) != sector->data) {
+                    // TODO: unify the max_tries behavior by leaving all_ok false here once we store multiple CRC-failed sectors.
                     //printf("Got new CRC failed read during retry - declaring 'success' for this sector (%d.%d.%d).\n", track->phys_cyl, track->phys_head, sector->log_sector);
                     all_ok = true;
                 }
@@ -582,10 +584,8 @@ static void process_floppy(void) {
                 copy_track_layout(&(disk.tracks[cyl - 1][head]), track);
             }
 
-            // FIXME: option for this
-            const int max_tries = 10;
             for (int try_num = 0; ; try_num++) {
-                if (try_num == max_tries) {
+                if (try_num == args.max_tries) {
                     // Tried too many times; give up.
                     break;
                 }
@@ -618,6 +618,7 @@ static void usage(void) {
     fprintf(stderr, "  -t TRACKS  drive has TRACKS tracks (default autodetect)\n");
     fprintf(stderr, "  -C         read comment from stdin\n");
     fprintf(stderr, "  -S SEC     ignore sectors with logical ID SEC\n");
+    fprintf(stderr, "  -m NUM     max reads of a failed sector (default 10)\n");
     // FIXME: -h HEAD     read single-sided image from head HEAD
 }
 
@@ -630,9 +631,10 @@ int main(int argc, char **argv) {
     args.read_comment = false;
     args.ignore_sector = -1;
     args.image_filename = NULL;
+    args.max_tries = 10;
 
     while (true) {
-        int opt = getopt(argc, argv, "ad:t:CS:");
+        int opt = getopt(argc, argv, "ad:t:CS:m:");
         if (opt == -1) break;
 
         switch (opt) {
@@ -650,6 +652,9 @@ int main(int argc, char **argv) {
             break;
         case 'S':
             args.ignore_sector = atoi(optarg);
+            break;
+        case 'm':
+            args.max_tries = atoi(optarg);
             break;
         default:
             usage();
