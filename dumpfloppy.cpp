@@ -535,17 +535,15 @@ static void process_floppy(void) {
     disk.num_phys_cyls /= args.cyl_scale;
 
     FILE *image = NULL;
-    if (args.image_filename != NULL) {
-        // FIXME: if the image exists already, load it
-        // (so the comment is preserved)
+    // FIXME: if the image exists already, load it
+    // (so the comment is preserved)
 
-        image = fopen(args.image_filename, "wb");
-        if (image == NULL) {
-            die_errno("cannot open %s", args.image_filename);
-        }
-
-        write_imd_header(&disk, image);
+    image = fopen(args.image_filename, "wb");
+    if (image == NULL) {
+        die_errno("cannot open %s for writing", args.image_filename);
     }
+
+    write_imd_header(&disk, image);
 
     // FIXME: retry disk if not complete -- option for number of retries
     // FIXME: if retrying, ensure we've moved the head across the disk
@@ -582,21 +580,17 @@ static void process_floppy(void) {
                 }
             }
 
-            if (image != NULL) {
-                write_imd_track(track, image);
-                fflush(image);
-            }
+            write_imd_track(track, image);
+            fflush(image);
         }
     }
 
-    if (image != NULL) {
-        fclose(image);
-    }
+    fclose(image);
     close(dev_fd);
 }
 
 static void usage(void) {
-    fprintf(stderr, "usage: dumpfloppy [OPTION]... [IMAGE-FILE]\n");
+    fprintf(stderr, "usage: dumpfloppy [OPTION]... IMAGE-FILE\n");
     fprintf(stderr, "  -a         probe each track before reading\n");
     fprintf(stderr, "  -d NUM     drive number to read from (default 0)\n");
     fprintf(stderr, "  -t TRACKS  drive has TRACKS tracks (default autodetect)\n");
@@ -641,13 +635,11 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (optind == argc) {
-        // No image file.
-    } else if (optind + 1 == argc) {
+    if (optind + 1 == argc) {
         args.image_filename = argv[optind];
     } else {
         usage();
-        return 0;
+        return 1;
     }
 
     process_floppy();
