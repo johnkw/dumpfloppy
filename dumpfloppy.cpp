@@ -335,7 +335,7 @@ static bool probe_track(track_t *track) {
 
 // Try to read any sectors in a track that haven't already been read.
 // Returns true if everything has been read.
-static bool read_track(track_t *track) {
+static bool read_track(track_t *track, bool retrying) {
     struct floppy_raw_cmd cmd;
 
     if (track->status == TRACK_UNKNOWN) {
@@ -349,7 +349,9 @@ static bool read_track(track_t *track) {
 
     const sector_t* lowest_sector;
     bool contiguous;
-    track_scan_sectors(track, &lowest_sector, &contiguous);
+    if (!retrying) {
+        track_scan_sectors(track, &lowest_sector, &contiguous);
+    }
 
     const int sector_size = sector_bytes(track->sector_size_code);
     const int track_size = sector_size * track->num_sectors;
@@ -361,7 +363,7 @@ static bool read_track(track_t *track) {
     // regular or deleted).
     // FIXME: Describe read errors, with the phys/log context.
 
-    if (contiguous) {
+    if (contiguous && !retrying) {
         // Try reading the whole track to start with.
         // If this works, it's a lot faster than reading sector-by-sector.
         // The resulting data will be ordered by *logical* ID.
@@ -401,14 +403,18 @@ static bool read_track(track_t *track) {
 
         // Read a single sector.
         if (!fd_read(track, sector, data_buf, sector_size, &cmd)) {
+            all_ok = false;
             // 0x20 is CRC Error in Data Field.
             if ((cmd.reply[2] & 0x20) != 0) {
                 // Bad data. Better than nothing, but we'll want to try again.
                 sector->status = SECTOR_BAD;
+                if (retrying && data_t(data_buf, sector_size) != sector->data) {
+                    //printf("Got new CRC failed read during retry - declaring 'success' for this sector (%d.%d.%d).\n", track->phys_cyl, track->phys_head, sector->log_sector);
+                    all_ok = true;
+                }
             } else {
                 have_data = false; // No data.
             }
-            all_ok = false;
         } else {
             // Success!
             sector->status = SECTOR_GOOD;
@@ -421,7 +427,7 @@ static bool read_track(track_t *track) {
             sector->data.assign(data_buf, sector_size);
 
             if (sector->status == SECTOR_BAD) {
-                printf("?");
+                printf(all_ok ? "^" : "?");
             } else if (sector->deleted) {
                 printf("x");
             } else {
@@ -503,9 +509,25 @@ static void process_floppy(void) {
         fd_recalibrate(&cmd);
     }
 
+    bool retrying = false;
+    FILE *image = NULL;
     disk_t disk;
-    init_disk(&disk);
-    make_disk_comment(PACKAGE_NAME, PACKAGE_VERSION, &disk);
+    assert(args.image_filename != NULL);
+
+    // If the image exists already, load it, and continue from there.
+    if (access(args.image_filename, F_OK ) != -1) {
+        FILE *f = fopen(args.image_filename, "rb");
+        if (f == NULL) {
+            die_errno("cannot open %s for reading", args.image_filename);
+        }
+        disk = read_imd(f);
+        fclose(f);
+        retrying = true;
+        fprintf(stdout, "Loaded prior image. Retrying failed reads...\n");
+    } else {
+        init_disk(&disk);
+        make_disk_comment(PACKAGE_NAME, PACKAGE_VERSION, &disk);
+    }
 
     if (args.read_comment) {
         if (isatty(0)) {
@@ -524,19 +546,19 @@ static void process_floppy(void) {
         }
     }
 
-    if (args.tracks == -1) {
-        disk.num_phys_cyls = drive_params.tracks;
+    if (retrying) {
+        printf("Using previously probed disk cyls/heads from %s\n", args.image_filename);
     } else {
-        disk.num_phys_cyls = args.tracks;
+        if (args.tracks == -1) {
+            disk.num_phys_cyls = drive_params.tracks;
+        } else {
+            disk.num_phys_cyls = args.tracks;
+        }
+        disk.num_phys_heads = 2;
+
+        probe_disk(&disk);
+        disk.num_phys_cyls /= args.cyl_scale;
     }
-    disk.num_phys_heads = 2;
-
-    probe_disk(&disk);
-    disk.num_phys_cyls /= args.cyl_scale;
-
-    FILE *image = NULL;
-    // FIXME: if the image exists already, load it
-    // (so the comment is preserved)
 
     image = fopen(args.image_filename, "wb");
     if (image == NULL) {
@@ -553,7 +575,7 @@ static void process_floppy(void) {
         for (int head = 0; head < disk.num_phys_heads; head++) {
             track_t *track = &(disk.tracks[cyl][head]);
 
-            if (args.always_probe) {
+            if (args.always_probe || retrying) {
                 // Don't assume a layout.
             } else if (cyl > 0) {
                 // Try the layout of the previous cyl on the same head.
@@ -568,7 +590,7 @@ static void process_floppy(void) {
                     break;
                 }
 
-                if (read_track(track)) {
+                if (read_track(track, retrying)) {
                     // Success!
                     break;
                 }

@@ -83,7 +83,7 @@ public:
 };
 
 static void write_flat(const disk_t *disk, FILE *flat) {
-    typedef std::map<SHC_t, std::basic_string<uint8_t> > disk_image_t;
+    typedef std::map<SHC_t, data_t> disk_image_t;
     disk_image_t disk_image;
 
     // The range of C/H/S to use in the output image (based on what we load).
@@ -141,7 +141,7 @@ static void write_flat(const disk_t *disk, FILE *flat) {
     apply_range_option(&args.out_heads, &out_heads);
     apply_range_option(&args.out_sectors, &out_sectors);
 
-    std::basic_string<uint8_t> dummy_data(sector_bytes(size_code), 0xFF); // Data to write where we don't have a real sector.
+    data_t dummy_data(sector_bytes(size_code), 0xFF); // Data to write where we don't have a real sector.
 
     // Go through the disk_image, and write all sectors out.
     for_range (cyl, &out_cyls) {

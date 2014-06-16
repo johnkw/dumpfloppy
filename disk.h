@@ -64,13 +64,16 @@ typedef enum {
     SECTOR_GOOD
 } sector_status_t;
 
+
+typedef std::basic_string<uint8_t> data_t; // Data bytes content of a particular sector read.
+
 typedef struct {
     sector_status_t status;
     uint8_t log_cyl;
     uint8_t log_head;
     uint8_t log_sector;
     bool deleted;
-    std::basic_string<uint8_t> data;
+    data_t data;
 } sector_t;
 
 void init_sector(sector_t *sector);

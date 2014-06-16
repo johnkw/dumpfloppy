@@ -265,6 +265,7 @@ void write_imd_track(const track_t *track, FILE *image) {
 
         if (!sector->data.empty()) {
             assert(sector->data.length() == sector_bytes(track->sector_size_code));
+            // If every byte in the sector is identical, just store it once, with a "compressed" flag.
             const uint8_t first = sector->data[0];
             bool can_compress = true;
             for (unsigned int i = 0; i < sector->data.length(); i++) {
