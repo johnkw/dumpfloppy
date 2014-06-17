@@ -19,6 +19,7 @@
 */
 
 #include "disk.h"
+#include "util.h"
 
 #include <stdio.h>
 
@@ -70,41 +71,49 @@ void show_track_data(const track_t* const track, FILE* const out) {
                 track->phys_cyl, track->phys_head, phys_sec,
                 sector->log_cyl, sector->log_head, sector->log_sector);
         if (sector->status == SECTOR_BAD) {
-            fprintf(out, " (bad data)");
+            fprintf(out, " (unique bad datas: %d)", sector->datas.size());
+        } else if (sector->datas.size() != 1) {
+            die("Unexpected multidata on a non-bad sector.");
         }
         fprintf(out, ":\n");
 
-        // The format here is based on "hexdump -C".
-        // (Although it's not smart enough to fold identical data.)
-        const int line_len = 16;
-        for (int i = 0; i < data_len; i += line_len) {
-            fprintf(out, "%04x ", i);
-
-            for (int j = 0; j < line_len; j++) {
-                const int pos = i + j;
-                if (pos < data_len) {
-                    fprintf(out, " %02x", sector->data[pos]);
-                } else {
-                    fprintf(out, "   ");
-                }
+        for (data_map_t::const_iterator iter = sector->datas.begin(); iter != sector->datas.end(); iter++) {
+            if (iter->second > 1) {
+                fprintf(out, "Data count: %d\n", iter->second);
             }
 
-            fprintf(out, "  |");
-            for (int j = 0; j < line_len; j++) {
-                const int pos = i + j;
-                if (pos < data_len) {
-                    const uint8_t c = sector->data[pos];
-                    if (c >= 32 && c < 127) {
-                        fprintf(out, "%c", c);
+            // The format here is based on "hexdump -C".
+            // (Although it's not smart enough to fold identical data.)
+            const int line_len = 16;
+            for (int i = 0; i < data_len; i += line_len) {
+                fprintf(out, "%04x ", i);
+
+                for (int j = 0; j < line_len; j++) {
+                    const int pos = i + j;
+                    if (pos < data_len) {
+                        fprintf(out, " %02x", iter->first[pos]);
                     } else {
-                        fprintf(out, ".");
+                        fprintf(out, "   ");
                     }
-                } else {
-                    fprintf(out, " ");
                 }
-            }
 
-            fprintf(out, "|\n");
+                fprintf(out, "  |");
+                for (int j = 0; j < line_len; j++) {
+                    const int pos = i + j;
+                    if (pos < data_len) {
+                        const uint8_t c = iter->first[pos];
+                        if (c >= 32 && c < 127) {
+                            fprintf(out, "%c", c);
+                        } else {
+                            fprintf(out, ".");
+                        }
+                    } else {
+                        fprintf(out, " ");
+                    }
+                }
+
+                fprintf(out, "|\n");
+            }
         }
 
         fprintf(out, "\n");

@@ -61,12 +61,12 @@ void init_sector(sector_t *sector) {
     sector->log_head = 0xFF;
     sector->log_sector = 0xFF;
     sector->deleted = false;
-    sector->data.clear();
+    sector->datas.clear();
 }
 
 void assert_free_sector(const sector_t* const sector) {
     assert(sector->status == SECTOR_MISSING);
-    assert(sector->data.empty());
+    assert(sector->datas.empty());
 }
 
 void init_track(int phys_cyl, int phys_head, track_t *track) {

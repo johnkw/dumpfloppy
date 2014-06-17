@@ -42,7 +42,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
 #include <string>
+#include <map>
 
 // Convert sector_size_code to size in bytes.
 size_t sector_bytes(int code);
@@ -66,6 +68,7 @@ typedef enum {
 
 
 typedef std::basic_string<uint8_t> data_t; // Data bytes content of a particular sector read.
+typedef std::map<data_t, uint32_t> data_map_t;  // Data bytes maps to a counter of how many times we found that data.
 
 typedef struct {
     sector_status_t status;
@@ -73,7 +76,7 @@ typedef struct {
     uint8_t log_head;
     uint8_t log_sector;
     bool deleted;
-    data_t data;
+    data_map_t datas;
 } sector_t;
 
 void init_sector(sector_t *sector);

@@ -204,7 +204,7 @@ static sector_t *track_readid(track_t *track) {
     assert(cmd.reply[6] != UCHAR_MAX);
 
     if (track->sector_size_code == UCHAR_MAX) {
-        printf("Got new sector_size_code %d\n", cmd.reply[6]);
+        //printf("Got new sector_size_code %d\n", cmd.reply[6]);
         track->sector_size_code = cmd.reply[6];
     } else if (track->sector_size_code != cmd.reply[6]) {
         // FIXME: handle this better -- e.g. discard all but first?
@@ -345,6 +345,18 @@ static bool read_track(track_t *track, bool retrying) {
         }
     }
 
+    if (retrying) {
+        bool have_everything = true;
+        for (int i = 0; i < track->num_sectors; i++) {
+            if (track->sectors[i].status != SECTOR_GOOD) {
+                have_everything = false;
+                break;
+            }
+        }
+        if (have_everything) {
+            return true; // Nothing else to do for this track. Avoid even printing the "Read..." line.
+        }
+    }
     printf("Read  %2d.%d:", track->phys_cyl, track->phys_head);
     fflush(stdout);
 
@@ -392,7 +404,8 @@ static bool read_track(track_t *track, bool retrying) {
             const int rel_sec = sector->log_sector - lowest_sector->log_sector;
 
             sector->status = SECTOR_GOOD;
-            sector->data.assign(track_data + (sector_size * rel_sec), sector_size);
+            assert(sector->datas.empty());
+            sector->datas[data_t(track_data + (sector_size * rel_sec), sector_size)] = 1; // 1 meaning we've seen this data 1 time now.
             sector->deleted = false;
 
             printf("*");
@@ -401,18 +414,26 @@ static bool read_track(track_t *track, bool retrying) {
 
         uint8_t data_buf[sector_size];
         bool have_data = true;
+        bool bad_data_new_read = true;
 
         // Read a single sector.
         if (!fd_read(track, sector, data_buf, sector_size, &cmd)) {
             all_ok = false;
-            // 0x20 is CRC Error in Data Field.
-            if ((cmd.reply[2] & 0x20) != 0) {
-                // Bad data. Better than nothing, but we'll want to try again.
+            if ((cmd.reply[2] & ST2_CRC) != 0) {
+                // ST2_CRC (0x20) "CRC error in data field". Better than nothing, but we'll want to try again.
                 sector->status = SECTOR_BAD;
-                if (retrying && data_t(data_buf, sector_size) != sector->data) {
-                    // TODO: unify the max_tries behavior by leaving all_ok false here once we store multiple CRC-failed sectors.
-                    //printf("Got new CRC failed read during retry - declaring 'success' for this sector (%d.%d.%d).\n", track->phys_cyl, track->phys_head, sector->log_sector);
-                    all_ok = true;
+                assert(!(cmd.reply[2] & (ST2_WC|ST2_SEH|ST2_SNS|ST2_BC|ST2_MAM)));
+                assert(cmd.reply[1] == ST1_CRC);
+
+                data_t data_str = data_t(data_buf, sector_size);
+                data_map_t::iterator iter = sector->datas.find(data_str);
+                if (iter == sector->datas.end()) {
+                    sector->datas.insert(data_map_t::value_type(data_str, 1)); // 1 meaning we've seen this data 1 time now.
+                } else {
+                    if (iter->second != UINT32_MAX) {
+                        iter->second++;
+                    }
+                    bad_data_new_read = false; // Got prior sector byte read again.
                 }
             } else {
                 have_data = false; // No data.
@@ -420,16 +441,18 @@ static bool read_track(track_t *track, bool retrying) {
         } else {
             // Success!
             sector->status = SECTOR_GOOD;
+            // Normally the '1' means we've seen this data 1 time now. But if we've ever seen anything else, this successful
+            // read should trump them all with the highest possible "seen count."
+            sector->datas.insert(data_map_t::value_type(data_t(data_buf, sector_size), sector->datas.empty() ? 1 : UINT32_MAX));
         }
 
         if (have_data) {
-            // 0x40 is Control Mark -- a deleted sector was read.
-            sector->deleted = (cmd.reply[2] & 0x40) != 0;
-
-            sector->data.assign(data_buf, sector_size);
+            // ST2_CM (0x40) is Control Mark -- a deleted sector was read.
+            sector->deleted = (cmd.reply[2] & ST2_CM) != 0;
 
             if (sector->status == SECTOR_BAD) {
-                printf(all_ok ? "^" : "?");
+                assert(!all_ok);
+                printf(bad_data_new_read ? "?" : "@");
             } else if (sector->deleted) {
                 printf("x");
             } else {
@@ -483,12 +506,12 @@ static void probe_disk(disk_t *disk) {
 }
 
 static void process_floppy(void) {
-    char dev_filename[] = "/dev/fdX";
-    dev_filename[7] = '0' + args.drive;
+    std::string dev_filename = str_sprintf("/dev/fd%d", args.drive);
+    printf("opening %s\n", dev_filename.c_str());
 
-    dev_fd = open(dev_filename, O_ACCMODE | O_NONBLOCK);
+    dev_fd = open(dev_filename.c_str(), O_ACCMODE | O_NONBLOCK);
     if (dev_fd == -1) {
-        die_errno("cannot open %s", dev_filename);
+        die_errno("cannot open %s", dev_filename.c_str());
     }
 
     // Get BIOS parameters for drive.
@@ -522,7 +545,7 @@ static void process_floppy(void) {
         if (f == NULL) {
             die_errno("cannot open %s for reading", args.image_filename);
         }
-        disk = read_imd(f);
+        read_imd(f, disk);
         fclose(f);
         retrying = true;
         fprintf(stdout, "Loaded prior image. Retrying failed reads...\n");
@@ -569,10 +592,8 @@ static void process_floppy(void) {
 
     write_imd_header(&disk, image);
 
-    // FIXME: retry disk if not complete -- option for number of retries
     // FIXME: if retrying, ensure we've moved the head across the disk
-    // FIXME: if retrying, turn the motor off and on (delay? close?)
-    // FIXME: pull this out to a read_disk function
+    // FIXME: if retrying, turn the motor off and on (delay? close?) ioctl(fd,FDTWADDLE)?
     for (int cyl = 0; cyl < disk.num_phys_cyls; cyl++) {
         for (int head = 0; head < disk.num_phys_heads; head++) {
             track_t *track = &(disk.tracks[cyl][head]);
@@ -584,12 +605,7 @@ static void process_floppy(void) {
                 copy_track_layout(&(disk.tracks[cyl - 1][head]), track);
             }
 
-            for (int try_num = 0; ; try_num++) {
-                if (try_num == args.max_tries) {
-                    // Tried too many times; give up.
-                    break;
-                }
-
+            for (int try_num = 0; try_num < args.max_tries; try_num++) {
                 if (read_track(track, retrying)) {
                     // Success!
                     break;

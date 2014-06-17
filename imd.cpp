@@ -24,6 +24,7 @@
 #include "imd.h"
 #include "util.h"
 
+#include <arpa/inet.h>
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,6 +43,8 @@
 #define IMD_SDR_IS_COMPRESSED 0x01
 #define IMD_SDR_IS_DELETED 0x02
 #define IMD_SDR_IS_ERROR 0x04
+#define IMD_SDR_ANOTHER_DATA_FOLLOWS 0x08 // Extension to original .IMD file format.
+#define IMD_SDR_HAS_DATA_COUNT 0x10       // Extension to original .IMD file format.
 
 // Read a track and add it to the disk. Return false on EOF.
 static bool read_imd_track(FILE *image, disk_t *disk) {
@@ -124,61 +127,94 @@ static bool read_imd_track(FILE *image, disk_t *disk) {
     for (size_t phys_sec = 0; phys_sec < num_sectors; phys_sec++) {
         sector_t *sector = &track->sectors[phys_sec];
 
-        sector->status = SECTOR_MISSING;
+        assert(sector->status == SECTOR_MISSING);
         sector->log_cyl = cyl_map[phys_sec];
         sector->log_head = head_map[phys_sec];
         sector->log_sector = sec_map[phys_sec];
         sector->deleted = false;
-        sector->data.clear();
+        sector->datas.clear();
 
-        uint8_t type, orig_type;
-        if (fread(&type, 1, 1, image) != 1) {
-            die("Couldn't read IMD sector header");
-        }
-        orig_type = type;
-
-        if (type > 0) {
-            type -= IMD_SDR_DATA;
-
-            if (type >= IMD_SDR_IS_ERROR) {
-                type -= IMD_SDR_IS_ERROR;
-                sector->status = SECTOR_BAD;
-            } else {
-                sector->status = SECTOR_GOOD;
+        bool first_read = true;
+        bool have_data_to_read = true;
+        while (have_data_to_read) {
+            have_data_to_read = false; // By default we only have one sector type to read.
+            uint8_t type, orig_type;
+            uint32_t count = 1;
+            if (fread(&type, 1, 1, image) != 1) {
+                die("Couldn't read IMD sector header");
             }
+            orig_type = type;
 
-            if (type >= IMD_SDR_IS_DELETED) {
-                type -= IMD_SDR_IS_DELETED;
-                sector->deleted = true;
-            }
+            if (type > 0) {
+                //printf("%s:%d got type %08x for (%d.%d.%d)\n", __FILE__, __LINE__, type, sector->log_cyl, sector->log_head, sector->log_sector);
+                type -= IMD_SDR_DATA;
 
-            if (type >= IMD_SDR_IS_COMPRESSED) {
-                type -= IMD_SDR_IS_COMPRESSED;
-
-                uint8_t fill;
-                if (fread(&fill, 1, 1, image) != 1) {
-                    die("Couldn't read IMD compressed sector data");
+                if (type >= IMD_SDR_HAS_DATA_COUNT) {
+                    type -= IMD_SDR_HAS_DATA_COUNT;
+                    if (fread(&count, sizeof(count), 1, image) != 1) {
+                        die_errno("Couldn't read IMD data count");
+                    }
+                    count = ntohl(count);
+                    assert(count > 1);
                 }
-                sector->data.assign(sector_size, fill);
-            } else {
-                uint8_t data_buf[sector_size];
-                if (fread(data_buf, 1, sector_size, image) != sector_size) {
-                    die("Couldn't read IMD sector data");
-                }
-                sector->data.assign(data_buf, sector_size);
-            }
 
-            if (type != 0) {
-                die("IMD sector has unsupported flags: %08x", orig_type);
+                if (type >= IMD_SDR_ANOTHER_DATA_FOLLOWS) {
+                    type -= IMD_SDR_ANOTHER_DATA_FOLLOWS;
+                    have_data_to_read = true; // This flag means another data follows this one.
+                }
+
+                if (first_read) {
+                    if (type >= IMD_SDR_IS_ERROR) {
+                        type -= IMD_SDR_IS_ERROR;
+                        sector->status = SECTOR_BAD;
+                    } else {
+                        sector->status = SECTOR_GOOD;
+                    }
+                } else {
+                    assert(type < IMD_SDR_IS_ERROR);
+                }
+
+                if (first_read) {
+                    if (type >= IMD_SDR_IS_DELETED) {
+                        type -= IMD_SDR_IS_DELETED;
+                        sector->deleted = true;
+                    }
+                } else {
+                    assert(type < IMD_SDR_IS_DELETED);
+                }
+
+                data_t this_data;
+                if (type >= IMD_SDR_IS_COMPRESSED) {
+                    type -= IMD_SDR_IS_COMPRESSED;
+                    uint8_t fill;
+                    if (fread(&fill, 1, 1, image) != 1) {
+                        die("Couldn't read IMD compressed sector data");
+                    }
+                    this_data.assign(sector_size, fill);
+                } else {
+                    uint8_t data_buf[sector_size];
+                    if (fread(data_buf, 1, sector_size, image) != sector_size) {
+                        die("Couldn't read IMD sector data");
+                    }
+                    this_data.assign(data_buf, sector_size);
+                }
+                std::pair<data_map_t::iterator, bool> ret = sector->datas.insert(data_map_t::value_type(this_data, count));
+                if (!ret.second) {
+                    die("unexpected duplicate data");
+                }
+
+                if (type != 0) {
+                    die("IMD sector has unsupported flags: %08x", orig_type);
+                }
             }
+            first_read = false;
         }
     }
 
     return true;
 }
 
-disk_t read_imd(FILE *image) {
-    disk_t disk;
+void read_imd(FILE *image, disk_t& disk) {
     init_disk(&disk);
 
     // Read the comment.
@@ -197,7 +233,6 @@ disk_t read_imd(FILE *image) {
     while (read_imd_track(image, &disk)) {
         // Nothing.
     }
-    return disk;
 }
 
 void write_imd_header(const disk_t *disk, FILE *image) {
@@ -249,6 +284,8 @@ void write_imd_track(const track_t *track, FILE *image) {
         const sector_t *sector = &(track->sectors[i]);
 
         uint8_t type = 0;
+        //printf("sector i %d status %d\n", i, sector->status);
+        assert(sector->datas.empty() == (sector->status == SECTOR_MISSING));
         switch (sector->status) {
         case SECTOR_MISSING:
             break;
@@ -261,27 +298,50 @@ void write_imd_track(const track_t *track, FILE *image) {
         }
         if (sector->deleted) {
             type += IMD_SDR_IS_DELETED;
+            assert(!sector->datas.empty());
         }
 
-        if (!sector->data.empty()) {
-            assert(sector->data.length() == sector_bytes(track->sector_size_code));
-            // If every byte in the sector is identical, just store it once, with a "compressed" flag.
-            const uint8_t first = sector->data[0];
-            bool can_compress = true;
-            for (unsigned int i = 0; i < sector->data.length(); i++) {
-                if (sector->data[i] != first) {
-                    can_compress = false;
-                }
-            }
+        if (!sector->datas.empty()) {
+            for (data_map_t::const_iterator iter = sector->datas.begin(); iter != sector->datas.end(); iter++) {
+                assert(iter->first.length() == sector_bytes(track->sector_size_code));
 
-            if (can_compress) {
-                fputc(type + IMD_SDR_IS_COMPRESSED, image);
-                fputc(first, image);
-            } else {
+                if (iter->second > 1) {
+                    type += IMD_SDR_HAS_DATA_COUNT;
+                }
+                if (std::distance(iter, sector->datas.end()) != 1) {
+                    type += IMD_SDR_ANOTHER_DATA_FOLLOWS;
+                }
+
+                // If every byte in the sector is identical, just store it once, with a "compressed" flag.
+                const uint8_t first = iter->first[0];
+                bool can_compress = true;
+                type += IMD_SDR_IS_COMPRESSED;
+                for (unsigned int i = 0; i < iter->first.length(); i++) {
+                    if (iter->first[i] != first) {
+                        can_compress = false;
+                        type -= IMD_SDR_IS_COMPRESSED;
+                        break;
+                    }
+                }
+
+                //printf("%s:%d wrote type %08x for (%d.%d.%d)\n", __FILE__, __LINE__, type, sector->log_cyl, sector->log_head, sector->log_sector);
                 fputc(type, image);
-                fwrite(sector->data.data(), 1, sector->data.length(), image);
+
+                if (iter->second > 1) {
+                    uint32_t buf = htonl(iter->second);
+                    size_t ret = fwrite(&buf, sizeof(buf), 1, image);
+                    if (ret != 1) { die_errno("fwrite failed"); }
+                }
+
+                if (can_compress) {
+                    fputc(first, image);
+                } else {
+                    fwrite(iter->first.data(), 1, iter->first.length(), image);
+                }
+                type = IMD_SDR_DATA; // Only the first 'type' contains error flags.
             }
         } else {
+            //printf("%s:%d wrote type %08x for (%d.%d.%d)\n", __FILE__, __LINE__, type, sector->log_cyl, sector->log_head, sector->log_sector);
             fputc(type, image);
         }
     }

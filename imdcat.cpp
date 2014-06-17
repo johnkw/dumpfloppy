@@ -122,8 +122,12 @@ static void write_flat(const disk_t *disk, FILE *flat) {
                 if (disk_image.find(SHC) != disk_image.end() && !args.permissive) {
                     die("Two sectors found for cylinder %d head %d sector %d", cyl, head, sec);
                 }
-                assert(sector->data.length() == sector_bytes(track->sector_size_code));
-                disk_image[SHC] = sector->data;
+                if (sector->datas.size() != 1) {
+                    // TODO: what do to otherwise...
+                    fprintf(stderr, "IGNORING all but first crc-failed read, and just dumping the first one!\n");
+                }
+                disk_image[SHC] = sector->datas.begin()->first;
+                assert(disk_image[SHC].length() == sector_bytes(track->sector_size_code));
 
                 // Sanity check that all the sectors are the same size. TODO: Is it really a problem if some are different sizes?
                 if (size_code == -1) {
@@ -135,7 +139,6 @@ static void write_flat(const disk_t *disk, FILE *flat) {
             }
         }
     }
-
     // Override output ranges as specified in options.
     apply_range_option(&args.out_cyls, &out_cyls);
     apply_range_option(&args.out_heads, &out_heads);
@@ -295,7 +298,8 @@ int main(int argc, char **argv) {
     if (f == NULL) {
         die_errno("cannot open %s", args.image_filename);
     }
-    disk_t disk = read_imd(f);
+    disk_t disk;
+    read_imd(f, disk);
     fclose(f);
 
     if (args.show_comment && !args.verbose) {
