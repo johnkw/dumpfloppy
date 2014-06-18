@@ -122,11 +122,30 @@ static void write_flat(const disk_t *disk, FILE *flat) {
                 if (disk_image.find(SHC) != disk_image.end() && !args.permissive) {
                     die("Two sectors found for cylinder %d head %d sector %d", cyl, head, sec);
                 }
+                size_t data_id = 0;
                 if (sector->datas.size() != 1) {
-                    // TODO: what do to otherwise...
-                    fprintf(stderr, "IGNORING all but first crc-failed read, and just dumping the first one!\n");
+                    fprintf(stderr, "Enter the 'IMD data id' to use for Logical C %d H %d S %d: ", sector->log_cyl, sector->log_head, sector->log_sector);
+                    char buf[100];
+                    for (;;) {
+                        if (fgets(buf, sizeof(buf), stdin) == NULL) {
+                            die_errno("Error reading stdin");
+                        }
+                        fprintf(stderr, "Read %s\n", buf);
+                        if (sscanf(buf, "%zd", &data_id) == 1) {
+                            if (data_id < sector->datas.size()) {
+                                break;
+                            } else {
+                                fprintf(stderr, "Parsed invalid 'IMD data id': %zd. Must be less than %zd.\n: ", data_id, sector->datas.size());
+                            }
+                        } else {
+                            fprintf(stderr, "Error parsing 'IMD data id': (%d:%s)\n: ", errno, strerror(errno));
+                        }
+                    }
                 }
-                disk_image[SHC] = sector->datas.begin()->first;
+                data_map_t::const_iterator iter = sector->datas.begin();
+                while (data_id--) { iter++; }
+
+                disk_image[SHC] = iter->first;
                 assert(disk_image[SHC].length() == sector_bytes(track->sector_size_code));
 
                 // Sanity check that all the sectors are the same size. TODO: Is it really a problem if some are different sizes?

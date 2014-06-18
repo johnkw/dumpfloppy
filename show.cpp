@@ -67,26 +67,27 @@ void show_track_data(const track_t* const track, FILE* const out) {
         if (sector->status == SECTOR_MISSING) continue;
 
         const int data_len = sector_bytes(track->sector_size_code);
-        fprintf(out, "Physical C %d H %d S %d, logical C %d H %d S %d",
+        fprintf(out, "Physical C %d H %d S %d, Logical C %d H %d S %d",
                 track->phys_cyl, track->phys_head, phys_sec,
                 sector->log_cyl, sector->log_head, sector->log_sector);
         if (sector->status == SECTOR_BAD) {
-            fprintf(out, " (unique bad datas: %d)", sector->datas.size());
+            fprintf(out, ": (unique bad datas: %d)", sector->datas.size());
         } else if (sector->datas.size() != 1) {
             die("Unexpected multidata on a non-bad sector.");
         }
         fprintf(out, ":\n");
 
+        size_t data_id = 0;
         for (data_map_t::const_iterator iter = sector->datas.begin(); iter != sector->datas.end(); iter++) {
-            if (iter->second > 1) {
-                fprintf(out, "Data count: %d\n", iter->second);
+            if ((sector->datas.size() > 1) || (iter->second > 1)) {
+                fprintf(out, "IMD data id: %zd. Repeat count: %d.\n", data_id++, iter->second);
             }
 
             // The format here is based on "hexdump -C".
             // (Although it's not smart enough to fold identical data.)
             const int line_len = 16;
             for (int i = 0; i < data_len; i += line_len) {
-                fprintf(out, "%04x ", i);
+                fprintf(out, "%2d%2d%2d %04x ", sector->log_cyl, sector->log_head, sector->log_sector, i);
 
                 for (int j = 0; j < line_len; j++) {
                     const int pos = i + j;
