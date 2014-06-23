@@ -70,10 +70,8 @@ void show_track_data(const track_t* const track, FILE* const out) {
         fprintf(out, "Physical C %d H %d S %d, Logical C %d H %d S %d",
                 track->phys_cyl, track->phys_head, phys_sec,
                 sector->log_cyl, sector->log_head, sector->log_sector);
-        if (sector->status == SECTOR_BAD) {
-            fprintf(out, ": (unique bad datas: %d)", sector->datas.size());
-        } else if (sector->datas.size() != 1) {
-            die("Unexpected multidata on a non-bad sector.");
+        if (sector->datas.size() > 1) {
+            fprintf(out, ": (unique read datas: %d)", sector->datas.size());
         }
         fprintf(out, ":\n");
 

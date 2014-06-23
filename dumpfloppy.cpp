@@ -122,6 +122,8 @@ static bool fd_readid(const track_t *track, struct floppy_raw_cmd *cmd) {
     return ((cmd->reply[0] >> 6) & 3) == 0;
 }
 
+// See: https://web.archive.org/web/20140620002630/http://cpctech.cpc-live.com/docs/upd765a/necfdc.htm
+
 // Read data from sectors with consecutive logical sector IDs.
 // The sector_t given is for the first sector to be read.
 //
@@ -404,7 +406,11 @@ static bool read_track(track_t *track, bool retrying) {
             const int rel_sec = sector->log_sector - lowest_sector->log_sector;
 
             sector->status = SECTOR_GOOD;
-            assert(sector->datas.empty());
+
+            // If this was previously part of a bad read, but on a subsequent track attempt we
+            // read the whole track, then we start over with an empty sector and our one good read.
+            sector->datas.clear();
+
             sector->datas[data_t(track_data + (sector_size * rel_sec), sector_size)] = 1; // 1 meaning we've seen this data 1 time now.
             sector->deleted = false;
 
@@ -613,8 +619,7 @@ static void process_floppy(void) {
 
                 if (track->status == TRACK_GUESSED) {
                     // Maybe we guessed wrong. Probe and try again.
-                    track->status = TRACK_UNKNOWN;
-                    track->sector_size_code = UCHAR_MAX;
+                    init_track(cyl, head, track);
                 }
             }
 

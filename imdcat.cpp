@@ -124,6 +124,7 @@ static void write_flat(const disk_t *disk, FILE *flat) {
                 }
                 size_t data_id = 0;
                 if (sector->datas.size() != 1) {
+                    // TODO: for the case of a SECTOR_GOOD status, use the good read automatically? Or maybe just prompt "y/n" to use it?
                     fprintf(stderr, "Enter the 'IMD data id' to use for Logical C %d H %d S %d: ", sector->log_cyl, sector->log_head, sector->log_sector);
                     char buf[100];
                     for (;;) {
