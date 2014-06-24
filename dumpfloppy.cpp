@@ -53,6 +53,7 @@ static struct args {
     int ignore_sector;
     const char *image_filename;
     int max_tries;
+    bool retry;
 } args;
 static int dev_fd;
 
@@ -512,41 +513,15 @@ static void probe_disk(disk_t *disk) {
 }
 
 static void process_floppy(void) {
-    std::string dev_filename = str_sprintf("/dev/fd%d", args.drive);
-    printf("opening %s\n", dev_filename.c_str());
-
-    dev_fd = open(dev_filename.c_str(), O_ACCMODE | O_NONBLOCK);
-    if (dev_fd == -1) {
-        die_errno("cannot open %s", dev_filename.c_str());
-    }
-
-    // Get BIOS parameters for drive.
-    // These aren't necessarily accurate (e.g. there's no BIOS type for an
-    // 80-track 5.25" DD drive)...
-    struct floppy_drive_params drive_params;
-    if (ioctl(dev_fd, FDGETDRVPRM, &drive_params) < 0) {
-        die_errno("cannot get drive parameters");
-    }
-
-    // Reset the controller
-    if (ioctl(dev_fd, FDRESET, (void *) FD_RESET_ALWAYS) < 0) {
-        die_errno("cannot reset controller");
-    }
-    // FIXME: comment in fdrawcmd.1 says reset may block -- not O_NONBLOCK?
-
-    // Return to track 0
-    for (int i = 0; i < 2; i++) {
-        struct floppy_raw_cmd cmd;
-        fd_recalibrate(&cmd);
-    }
-
     bool retrying = false;
-    FILE *image = NULL;
     disk_t disk;
     assert(args.image_filename != NULL);
 
     // If the image exists already, load it, and continue from there.
     if (access(args.image_filename, F_OK ) != -1) {
+        if (!args.retry) {
+            die("File \"%s\" already exists. Specify \"-r\" to retry reads.", args.image_filename);
+        }
         FILE *f = fopen(args.image_filename, "rb");
         if (f == NULL) {
             die_errno("cannot open %s for reading", args.image_filename);
@@ -577,6 +552,37 @@ static void process_floppy(void) {
         }
     }
 
+    // Open the /dev/fd* file.
+    {
+        std::string dev_filename = str_sprintf("/dev/fd%d", args.drive);
+        printf("opening %s\n", dev_filename.c_str());
+
+        dev_fd = open(dev_filename.c_str(), O_ACCMODE | O_NONBLOCK);
+        if (dev_fd == -1) {
+            die_errno("cannot open %s", dev_filename.c_str());
+        }
+    }
+
+    // Get BIOS parameters for drive.
+    // These aren't necessarily accurate (e.g. there's no BIOS type for an
+    // 80-track 5.25" DD drive)...
+    struct floppy_drive_params drive_params;
+    if (ioctl(dev_fd, FDGETDRVPRM, &drive_params) < 0) {
+        die_errno("cannot get drive parameters");
+    }
+
+    // Reset the controller
+    if (ioctl(dev_fd, FDRESET, (void *) FD_RESET_ALWAYS) < 0) {
+        die_errno("cannot reset controller");
+    }
+    // FIXME: comment in fdrawcmd.1 says reset may block -- not O_NONBLOCK?
+
+    // Return to track 0
+    for (int i = 0; i < 2; i++) {
+        struct floppy_raw_cmd cmd;
+        fd_recalibrate(&cmd);
+    }
+
     if (retrying) {
         printf("Using previously probed disk cyls/heads from %s\n", args.image_filename);
     } else {
@@ -591,7 +597,7 @@ static void process_floppy(void) {
         disk.num_phys_cyls /= args.cyl_scale;
     }
 
-    image = fopen(args.image_filename, "wb");
+    FILE* image = fopen(args.image_filename, "wb");
     if (image == NULL) {
         die_errno("cannot open %s for writing", args.image_filename);
     }
@@ -633,13 +639,17 @@ static void process_floppy(void) {
 }
 
 static void usage(void) {
-    fprintf(stderr, "usage: dumpfloppy [OPTION]... IMAGE-FILE\n");
-    fprintf(stderr, "  -a         probe each track before reading\n");
-    fprintf(stderr, "  -d NUM     drive number to read from (default 0)\n");
-    fprintf(stderr, "  -t TRACKS  drive has TRACKS tracks (default autodetect)\n");
-    fprintf(stderr, "  -C         read comment from stdin\n");
-    fprintf(stderr, "  -S SEC     ignore sectors with logical ID SEC\n");
-    fprintf(stderr, "  -m NUM     max reads of a failed sector (default 10)\n");
+    fprintf(stderr,
+        "usage: dumpfloppy [OPTION]... IMAGE-FILE\n"
+        "  -a         probe each track before reading\n"
+        "  -d NUM     drive number to read from (default 0)\n"
+        "  -t TRACKS  drive has TRACKS tracks (default autodetect)\n"
+        "  -C         read comment from stdin\n"
+        "  -S SEC     ignore sectors with logical ID SEC\n"
+        "  -m NUM     max reads of a failed sector (default 10)\n"
+        "  -r         perform retry on existing IMD file.\n"
+    );
+
     // FIXME: -h HEAD     read single-sided image from head HEAD
 }
 
@@ -655,7 +665,7 @@ int main(int argc, char **argv) {
     args.max_tries = 10;
 
     while (true) {
-        int opt = getopt(argc, argv, "ad:t:CS:m:");
+        int opt = getopt(argc, argv, "ad:t:CS:m:r");
         if (opt == -1) break;
 
         switch (opt) {
@@ -676,6 +686,9 @@ int main(int argc, char **argv) {
             break;
         case 'm':
             args.max_tries = atoi(optarg);
+            break;
+        case 'r':
+            args.retry = true;
             break;
         default:
             usage();
