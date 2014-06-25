@@ -63,7 +63,8 @@ extern const data_mode_t DATA_MODES[];
 typedef enum {
     SECTOR_MISSING = 0,
     SECTOR_BAD,
-    SECTOR_GOOD
+    SECTOR_GOOD,
+    SECTOR_ENUM_HIGHEST = SECTOR_GOOD // Ensure this is this highest entry (and enums values are monotonic), per usage elsewhere.
 } sector_status_t;
 
 

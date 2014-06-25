@@ -636,6 +636,18 @@ static void process_floppy(void) {
 
     fclose(image);
     close(dev_fd);
+
+    {
+        long secstat[SECTOR_ENUM_HIGHEST+1] = {0};
+        for (int phys_cyl = 0; phys_cyl < disk.num_phys_cyls; phys_cyl++) {
+            for (int phys_head = 0; phys_head < disk.num_phys_heads; phys_head++) {
+                for (int phys_sec = 0; phys_sec < disk.tracks[phys_cyl][phys_head].num_sectors; phys_sec++) {
+                    secstat[disk.tracks[phys_cyl][phys_head].sectors[phys_sec].status]++;
+                }
+            }
+        }
+        printf("\nSector statuses:\nGood:    %ld\nBad:     %ld\nMissing: %ld\n", secstat[SECTOR_GOOD], secstat[SECTOR_BAD], secstat[SECTOR_MISSING]);
+    }
 }
 
 static void usage(void) {
