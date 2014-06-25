@@ -517,11 +517,17 @@ static void process_floppy(void) {
     disk_t disk;
     assert(args.image_filename != NULL);
 
+    mode_t image_file_mode = S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH;
     // If the image exists already, load it, and continue from there.
-    if (access(args.image_filename, F_OK ) != -1) {
+    if (access(args.image_filename, F_OK) != -1) {
         if (!args.retry) {
             die("File \"%s\" already exists. Specify \"-r\" to retry reads.", args.image_filename);
         }
+        struct stat mystat;
+        if (stat(args.image_filename, &mystat) != 0) {
+            die_errno("stat failed on %s", args.image_filename);
+        }
+        image_file_mode = mystat.st_mode;
         FILE *f = fopen(args.image_filename, "rb");
         if (f == NULL) {
             die_errno("cannot open %s for reading", args.image_filename);
@@ -550,6 +556,12 @@ static void process_floppy(void) {
 
             disk.comment.append(buf, count);
         }
+    }
+
+    std::string filename_in_progress = str_sprintf("%s.in_progress", args.image_filename);
+    FILE* image = fdopen(open(filename_in_progress.c_str(), O_EXCL|O_CREAT|O_WRONLY, image_file_mode), "wb");
+    if (image == NULL) {
+        die_errno("cannot open %s for writing", filename_in_progress.c_str());
     }
 
     // Open the /dev/fd* file.
@@ -595,11 +607,6 @@ static void process_floppy(void) {
 
         probe_disk(&disk);
         disk.num_phys_cyls /= args.cyl_scale;
-    }
-
-    FILE* image = fopen(args.image_filename, "wb");
-    if (image == NULL) {
-        die_errno("cannot open %s for writing", args.image_filename);
     }
 
     write_imd_header(&disk, image);
@@ -649,6 +656,10 @@ static void process_floppy(void) {
             }
         }
         printf("\nSector statuses:\nGood:    %ld\nBad:     %ld\nMissing: %ld\n", secstat[SECTOR_GOOD], secstat[SECTOR_BAD], secstat[SECTOR_MISSING]);
+    }
+
+    if (rename(filename_in_progress.c_str(), args.image_filename) != 0) {
+        die_errno("rename \"%s\" to \"%s\" failed", filename_in_progress.c_str(), args.image_filename);
     }
 }
 
