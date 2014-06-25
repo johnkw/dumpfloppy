@@ -55,108 +55,106 @@ const data_mode_t DATA_MODES[] = {
     { 0, NULL, 0, false } // NULL represents end of array.
 };
 
-void init_sector(sector_t *sector) {
-    sector->status = SECTOR_MISSING;
-    sector->log_cyl = 0xFF;
-    sector->log_head = 0xFF;
-    sector->log_sector = 0xFF;
-    sector->deleted = false;
-    sector->datas.clear();
+void init_sector(sector_t& sector) {
+    sector.status = SECTOR_MISSING;
+    sector.log_cyl = 0xFF;
+    sector.log_head = 0xFF;
+    sector.log_sector = 0xFF;
+    sector.deleted = false;
+    sector.datas.clear();
 }
 
-void assert_free_sector(const sector_t* const sector) {
-    assert(sector->status == SECTOR_MISSING);
-    assert(sector->datas.empty());
+void assert_free_sector(const sector_t& sector) {
+    assert(sector.status == SECTOR_MISSING);
+    assert(sector.datas.empty());
 }
 
-void init_track(int phys_cyl, int phys_head, track_t *track) {
-    track->status = TRACK_UNKNOWN,
-    track->data_mode = NULL,
-    track->phys_cyl = phys_cyl;
-    track->phys_head = phys_head;
-    track->num_sectors = 0;
-    track->sector_size_code = UCHAR_MAX;
+void init_track(int phys_cyl, int phys_head, track_t& track) {
+    track.status = TRACK_UNKNOWN,
+    track.data_mode = NULL,
+    track.phys_cyl = phys_cyl;
+    track.phys_head = phys_head;
+    track.num_sectors = 0;
+    track.sector_size_code = UCHAR_MAX;
     for (int i = 0; i < MAX_SECS; i++) {
-        init_sector(&(track->sectors[i]));
+        init_sector(track.sectors[i]);
     }
 }
 
-void init_disk(disk_t *disk) {
-    disk->comment = "";
-    disk->num_phys_cyls = 0;
-    disk->num_phys_heads = 0;
+void init_disk(disk_t& disk) {
+    disk.comment = "";
+    disk.num_phys_cyls = 0;
+    disk.num_phys_heads = 0;
     for (int cyl = 0; cyl < MAX_CYLS; cyl++) {
         for (int head = 0; head < MAX_HEADS; head++) {
-            init_track(cyl, head, &(disk->tracks[cyl][head]));
+            init_track(cyl, head, disk.tracks[cyl][head]);
         }
     }
 }
 
-void make_disk_comment(const char *program, const char *version, disk_t *disk) {
+void make_disk_comment(const char *program, const char *version, disk_t& disk) {
     time_t now = time(NULL);
     const struct tm *local = localtime(&now);
 
-    disk->comment = str_sprintf(
+    disk.comment = str_sprintf(
         "%s %s: %02d/%02d/%04d %02d:%02d:%02d\r\n",
         program, version,
         local->tm_mday, local->tm_mon + 1, local->tm_year + 1900,
         local->tm_hour, local->tm_min, local->tm_sec);
 }
 
-void copy_track_layout(const track_t *src, track_t *dest) {
-    if (src->status == TRACK_UNKNOWN) return;
+void copy_track_layout(const track_t& src, track_t& dest) {
+    if (src.status == TRACK_UNKNOWN) return;
 
-    dest->status = TRACK_GUESSED;
-    dest->data_mode = src->data_mode;
-    dest->num_sectors = src->num_sectors;
-    dest->sector_size_code = src->sector_size_code;
+    dest.status = TRACK_GUESSED;
+    dest.data_mode = src.data_mode;
+    dest.num_sectors = src.num_sectors;
+    dest.sector_size_code = src.sector_size_code;
 
-    int cyl_diff = dest->phys_cyl - src->phys_cyl;
-    for (int i = 0; i < src->num_sectors; i++) {
-        const sector_t *src_sec = &(src->sectors[i]);
-        sector_t *dest_sec = &(dest->sectors[i]);
+    int cyl_diff = dest.phys_cyl - src.phys_cyl;
+    for (int i = 0; i < src.num_sectors; i++) {
+        const sector_t& src_sec = src.sectors[i];
+        sector_t& dest_sec = dest.sectors[i];
 
-        dest_sec->log_cyl = src_sec->log_cyl + cyl_diff;
-        dest_sec->log_head = src_sec->log_head;
-        dest_sec->log_sector = src_sec->log_sector;
+        dest_sec.log_cyl = src_sec.log_cyl + cyl_diff;
+        dest_sec.log_head = src_sec.log_head;
+        dest_sec.log_sector = src_sec.log_sector;
     }
 }
 
-void track_scan_sectors(const track_t* const track,
-                        const sector_t **lowest,
-                        bool *contiguous) {
+bool track_scan_sectors(const track_t& track, const sector_t** lowest) {
     bool seen[MAX_SECS] = {false};
 
     *lowest = NULL;
     int lowest_id = MAX_SECS;
     int highest_id = 0;
-    for (int i = 0; i < track->num_sectors; i++) {
-        const sector_t* sector = &(track->sectors[i]);
-        const int id = sector->log_sector;
+    for (int i = 0; i < track.num_sectors; i++) {
+        const sector_t& sector = track.sectors[i];
+        const int id = sector.log_sector;
         assert(id < MAX_SECS);
         assert(!seen[id]); // How would we handle getting the same sector id twice?
         seen[id] = true;
 
         if (id < lowest_id) {
             lowest_id = id;
-            *lowest = sector;
+            *lowest = &sector;
         }
         if (id > highest_id) {
             highest_id = id;
         }
     }
 
-    *contiguous = true;
     for (int i = lowest_id; i < highest_id; i++) {
         if (!seen[i]) {
-            *contiguous = false;
+            return false; // not contiguous
         }
     }
+    return true; // contiguous
 }
 
-bool same_sector_addr(const sector_t *a, const sector_t *b) {
-    if (a->log_cyl != b->log_cyl) return false;
-    if (a->log_head != b->log_head) return false;
-    if (a->log_sector != b->log_sector) return false;
+bool same_sector_addr(const sector_t& a, const sector_t& b) {
+    if (a.log_cyl != b.log_cyl) return false;
+    if (a.log_head != b.log_head) return false;
+    if (a.log_sector != b.log_sector) return false;
     return true;
 }

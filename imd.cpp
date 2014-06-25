@@ -47,7 +47,7 @@
 #define IMD_SDR_HAS_DATA_COUNT 0x10       // Extension to original .IMD file format.
 
 // Read a track and add it to the disk. Return false on EOF.
-static bool read_imd_track(FILE *image, disk_t *disk) {
+static bool read_imd_track(FILE *image, disk_t& disk) {
     uint8_t header[5];
     int count = fread(header, 1, 5, image);
     if (count == 0 && feof(image)) {
@@ -61,8 +61,8 @@ static bool read_imd_track(FILE *image, disk_t *disk) {
     if (phys_cyl >= MAX_CYLS) {
         die("IMD track cylinder value too large: %d", phys_cyl);
     }
-    if (phys_cyl >= disk->num_phys_cyls) {
-        disk->num_phys_cyls = phys_cyl + 1;
+    if (phys_cyl >= disk.num_phys_cyls) {
+        disk.num_phys_cyls = phys_cyl + 1;
     }
 
     if ((header[2] & ~IMD_ALL_FLAGS) != 0) {
@@ -73,34 +73,34 @@ static bool read_imd_track(FILE *image, disk_t *disk) {
     if (phys_head >= MAX_HEADS) {
         die("IMD track head value too large: %d", phys_head);
     }
-    if (phys_head >= disk->num_phys_heads) {
-        disk->num_phys_heads = phys_head + 1;
+    if (phys_head >= disk.num_phys_heads) {
+        disk.num_phys_heads = phys_head + 1;
     }
 
-    track_t *track = &disk->tracks[phys_cyl][phys_head];
-    track->status = TRACK_PROBED;
+    track_t& track = disk.tracks[phys_cyl][phys_head];
+    track.status = TRACK_PROBED;
     for (int i = 0; ; i++) {
         if (DATA_MODES[i].name == NULL) {
             die("IMD track mode unknown: %d", header[0]);
         }
         if (DATA_MODES[i].imd_mode == header[0]) {
-            track->data_mode = &DATA_MODES[i];
+            track.data_mode = &DATA_MODES[i];
             break;
         }
     }
-    track->phys_cyl = phys_cyl;
-    track->phys_head = phys_head;
+    track.phys_cyl = phys_cyl;
+    track.phys_head = phys_head;
     size_t num_sectors = header[3];
-    track->num_sectors = num_sectors;
-    track->sector_size_code = header[4];
-    if (track->num_sectors == 0) {
+    track.num_sectors = num_sectors;
+    track.sector_size_code = header[4];
+    if (track.num_sectors == 0) {
         return true; // Nothing else to do. (Note: a completely unreadable track will have no sectors and sector_size_code 0xFF.)
     }
-    if (track->sector_size_code == 0xFF) {
+    if (track.sector_size_code == 0xFF) {
         // FIXME: implement this (by having arbitrary sector sizes)
         die("IMD variable sector size extension not supported");
     }
-    size_t sector_size = sector_bytes(track->sector_size_code);
+    size_t sector_size = sector_bytes(track.sector_size_code);
 
     uint8_t sec_map[num_sectors];
     uint8_t cyl_map[num_sectors];
@@ -125,14 +125,14 @@ static bool read_imd_track(FILE *image, disk_t *disk) {
     }
 
     for (size_t phys_sec = 0; phys_sec < num_sectors; phys_sec++) {
-        sector_t *sector = &track->sectors[phys_sec];
+        sector_t& sector = track.sectors[phys_sec];
 
-        assert(sector->status == SECTOR_MISSING);
-        sector->log_cyl = cyl_map[phys_sec];
-        sector->log_head = head_map[phys_sec];
-        sector->log_sector = sec_map[phys_sec];
-        sector->deleted = false;
-        sector->datas.clear();
+        assert(sector.status == SECTOR_MISSING);
+        sector.log_cyl = cyl_map[phys_sec];
+        sector.log_head = head_map[phys_sec];
+        sector.log_sector = sec_map[phys_sec];
+        sector.deleted = false;
+        sector.datas.clear();
 
         bool first_read = true;
         bool have_data_to_read = true;
@@ -146,7 +146,7 @@ static bool read_imd_track(FILE *image, disk_t *disk) {
             orig_type = type;
 
             if (type > 0) {
-                //printf("%s:%d got type %08x for (%d.%d.%d)\n", __FILE__, __LINE__, type, sector->log_cyl, sector->log_head, sector->log_sector);
+                //printf("%s:%d got type %08x for (%d.%d.%d)\n", __FILE__, __LINE__, type, sector.log_cyl, sector.log_head, sector.log_sector);
                 type -= IMD_SDR_DATA;
 
                 if (type >= IMD_SDR_HAS_DATA_COUNT) {
@@ -166,9 +166,9 @@ static bool read_imd_track(FILE *image, disk_t *disk) {
                 if (first_read) {
                     if (type >= IMD_SDR_IS_ERROR) {
                         type -= IMD_SDR_IS_ERROR;
-                        sector->status = SECTOR_BAD;
+                        sector.status = SECTOR_BAD;
                     } else {
-                        sector->status = SECTOR_GOOD;
+                        sector.status = SECTOR_GOOD;
                     }
                 } else {
                     assert(type < IMD_SDR_IS_ERROR);
@@ -177,7 +177,7 @@ static bool read_imd_track(FILE *image, disk_t *disk) {
                 if (first_read) {
                     if (type >= IMD_SDR_IS_DELETED) {
                         type -= IMD_SDR_IS_DELETED;
-                        sector->deleted = true;
+                        sector.deleted = true;
                     }
                 } else {
                     assert(type < IMD_SDR_IS_DELETED);
@@ -198,7 +198,7 @@ static bool read_imd_track(FILE *image, disk_t *disk) {
                     }
                     this_data.assign(data_buf, sector_size);
                 }
-                std::pair<data_map_t::iterator, bool> ret = sector->datas.insert(data_map_t::value_type(this_data, count));
+                std::pair<data_map_t::iterator, bool> ret = sector.datas.insert(data_map_t::value_type(this_data, count));
                 if (!ret.second) {
                     die("unexpected duplicate data");
                 }
@@ -215,7 +215,7 @@ static bool read_imd_track(FILE *image, disk_t *disk) {
 }
 
 void read_imd(FILE *image, disk_t& disk) {
-    init_disk(&disk);
+    init_disk(disk);
 
     // Read the comment.
     char* read_buf;
@@ -230,63 +230,64 @@ void read_imd(FILE *image, disk_t& disk) {
     disk.num_phys_cyls = 0;
     disk.num_phys_heads = 0;
 
-    while (read_imd_track(image, &disk)) {
+    while (read_imd_track(image, disk)) {
         // Nothing.
     }
 }
 
-void write_imd_header(const disk_t *disk, FILE *image) {
-    if (!disk->comment.empty()) {
-        fwrite(disk->comment.c_str(), 1, disk->comment.length(), image);
+void write_imd_header(const disk_t& disk, FILE *image) {
+    if (!disk.comment.empty()) {
+        fwrite(disk.comment.c_str(), 1, disk.comment.length(), image);
     }
     fputc(IMD_END_OF_COMMENT, image);
 }
 
-void write_imd_track(const track_t *track, FILE *image) {
+void write_imd_track(const track_t& track, FILE *image) {
     uint8_t flags = 0;
 
-    uint8_t sec_map[track->num_sectors];
-    uint8_t cyl_map[track->num_sectors];
-    uint8_t head_map[track->num_sectors];
-    for (int i = 0; i < track->num_sectors; i++) {
-        const sector_t *sector = &(track->sectors[i]);
+    uint8_t sec_map[track.num_sectors];
+    uint8_t cyl_map[track.num_sectors];
+    uint8_t head_map[track.num_sectors];
+    for (int i = 0; i < track.num_sectors; i++) {
+        const sector_t& sector = track.sectors[i];
 
-        sec_map[i] = sector->log_sector;
-        cyl_map[i] = sector->log_cyl;
-        head_map[i] = sector->log_head;
+        sec_map[i] = sector.log_sector;
+        cyl_map[i] = sector.log_cyl;
+        head_map[i] = sector.log_head;
 
-        if (cyl_map[i] != track->phys_cyl) {
+        if (cyl_map[i] != track.phys_cyl) {
             flags |= IMD_NEED_CYL_MAP;
         }
-        if (head_map[i] != track->phys_head) {
+        if (head_map[i] != track.phys_head) {
             flags |= IMD_NEED_HEAD_MAP;
         }
     }
 
+    assert(track.data_mode);
     const uint8_t header[] = {
-        track->data_mode->imd_mode,
-        track->phys_cyl,
-        uint8_t(flags | track->phys_head),
-        track->num_sectors,
-        track->sector_size_code,
+        track.data_mode->imd_mode,
+        track.phys_cyl,
+        uint8_t(flags | track.phys_head),
+        track.num_sectors,
+        track.sector_size_code,
     };
     fwrite(header, 1, 5, image);
 
-    fwrite(sec_map, 1, track->num_sectors, image);
+    fwrite(sec_map, 1, track.num_sectors, image);
     if (flags & IMD_NEED_CYL_MAP) {
-        fwrite(cyl_map, 1, track->num_sectors, image);
+        fwrite(cyl_map, 1, track.num_sectors, image);
     }
     if (flags & IMD_NEED_HEAD_MAP) {
-        fwrite(head_map, 1, track->num_sectors, image);
+        fwrite(head_map, 1, track.num_sectors, image);
     }
 
-    for (int i = 0; i < track->num_sectors; i++) {
-        const sector_t *sector = &(track->sectors[i]);
+    for (int i = 0; i < track.num_sectors; i++) {
+        const sector_t& sector = track.sectors[i];
 
         uint8_t type = 0;
-        //printf("sector i %d status %d\n", i, sector->status);
-        assert(sector->datas.empty() == (sector->status == SECTOR_MISSING));
-        switch (sector->status) {
+        //printf("sector i %d status %d\n", i, sector.status);
+        assert(sector.datas.empty() == (sector.status == SECTOR_MISSING));
+        switch (sector.status) {
         case SECTOR_MISSING:
             break;
         case SECTOR_BAD:
@@ -296,19 +297,19 @@ void write_imd_track(const track_t *track, FILE *image) {
             type = IMD_SDR_DATA;
             break;
         }
-        if (sector->deleted) {
+        if (sector.deleted) {
             type += IMD_SDR_IS_DELETED;
-            assert(!sector->datas.empty());
+            assert(!sector.datas.empty());
         }
 
-        if (!sector->datas.empty()) {
-            for (data_map_t::const_iterator iter = sector->datas.begin(); iter != sector->datas.end(); iter++) {
-                assert(iter->first.length() == sector_bytes(track->sector_size_code));
+        if (!sector.datas.empty()) {
+            for (data_map_t::const_iterator iter = sector.datas.begin(); iter != sector.datas.end(); iter++) {
+                assert(iter->first.length() == sector_bytes(track.sector_size_code));
 
                 if (iter->second > 1) {
                     type += IMD_SDR_HAS_DATA_COUNT;
                 }
-                if (std::distance(iter, sector->datas.end()) != 1) {
+                if (std::distance(iter, sector.datas.end()) != 1) {
                     type += IMD_SDR_ANOTHER_DATA_FOLLOWS;
                 }
 
@@ -324,7 +325,7 @@ void write_imd_track(const track_t *track, FILE *image) {
                     }
                 }
 
-                //printf("%s:%d wrote type %08x for (%d.%d.%d)\n", __FILE__, __LINE__, type, sector->log_cyl, sector->log_head, sector->log_sector);
+                //printf("%s:%d wrote type %08x for (%d.%d.%d)\n", __FILE__, __LINE__, type, sector.log_cyl, sector.log_head, sector.log_sector);
                 fputc(type, image);
 
                 if (iter->second > 1) {
@@ -341,7 +342,7 @@ void write_imd_track(const track_t *track, FILE *image) {
                 type = IMD_SDR_DATA; // Only the first 'type' contains error flags.
             }
         } else {
-            //printf("%s:%d wrote type %08x for (%d.%d.%d)\n", __FILE__, __LINE__, type, sector->log_cyl, sector->log_head, sector->log_sector);
+            //printf("%s:%d wrote type %08x for (%d.%d.%d)\n", __FILE__, __LINE__, type, sector.log_cyl, sector.log_head, sector.log_sector);
             fputc(type, image);
         }
     }

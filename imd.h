@@ -23,8 +23,8 @@
 
 #include <stdio.h>
 
-void read_imd(FILE *image, disk_t& disk);
-void write_imd_header(const disk_t *disk, FILE *image);
-void write_imd_track(const track_t *track, FILE *image);
+void read_imd(FILE* image, disk_t& disk);
+void write_imd_header(const disk_t& disk, FILE* image);
+void write_imd_track(const track_t& track, FILE* image);
 
 #endif

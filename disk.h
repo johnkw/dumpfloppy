@@ -80,8 +80,8 @@ typedef struct {
     data_map_t datas;
 } sector_t;
 
-void init_sector(sector_t *sector);
-void assert_free_sector(const sector_t* const sector);
+void init_sector(sector_t& sector);
+void assert_free_sector(const sector_t& sector);
 
 typedef enum {
     TRACK_UNKNOWN = 0,
@@ -101,7 +101,7 @@ typedef struct {
     sector_t sectors[MAX_SECS]; // indexed by physical sector
 } track_t;
 
-void init_track(int phys_cyl, int phys_head, track_t *track);
+void init_track(const int phys_cyl, const int phys_head, track_t& track);
 
 #define MAX_CYLS 256
 #define MAX_HEADS 2
@@ -112,21 +112,19 @@ typedef struct {
     track_t tracks[MAX_CYLS][MAX_HEADS]; // indexed by physical cyl/head
 } disk_t;
 
-void init_disk(disk_t *disk);
+void init_disk(disk_t& disk);
 
 // Create a ImageDisk-style timestamp comment.
-void make_disk_comment(const char *program, const char *version, disk_t *disk);
+void make_disk_comment(const char *program, const char *version, disk_t& disk);
 
 // Copy the layout of a track from another track on the same head.
-void copy_track_layout(const track_t *src, track_t *dest);
+void copy_track_layout(const track_t& src, track_t& dest);
 
 // Find the sectors with the lowest and highest logical IDs in a track,
 // and whether the sectors have contiguous logical IDs.
-void track_scan_sectors(const track_t* const track,
-                        const sector_t **lowest,
-                        bool *contiguous);
+bool track_scan_sectors(const track_t& track, const sector_t **lowest);
 
 // Return whether two sectors have the same logical address.
-bool same_sector_addr(const sector_t *a, const sector_t *b);
+bool same_sector_addr(const sector_t& a, const sector_t& b);
 
 #endif

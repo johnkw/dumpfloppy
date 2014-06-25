@@ -31,9 +31,9 @@ void show_mode(const data_mode_t *mode, FILE *out) {
     }
 }
 
-void show_sector(const sector_t *sector, FILE *out) {
+void show_sector(const sector_t& sector, FILE *out) {
     char label = ' ';
-    switch (sector->status) {
+    switch (sector.status) {
     case SECTOR_MISSING:
         fprintf(out, "  . ");
         return;
@@ -41,43 +41,43 @@ void show_sector(const sector_t *sector, FILE *out) {
         label = '?';
         break;
     case SECTOR_GOOD:
-        if (sector->deleted) {
+        if (sector.deleted) {
             label = 'x';
         } else {
             label = '+';
         }
         break;
     }
-    fprintf(out, "%3d%c", sector->log_sector, label);
+    fprintf(out, "%3d%c", sector.log_sector, label);
 }
 
-void show_track(const track_t *track, FILE *out) {
-    show_mode(track->data_mode, out);
+void show_track(const track_t& track, FILE *out) {
+    show_mode(track.data_mode, out);
     fprintf(out, " %dx%d",
-            track->num_sectors,
-            sector_bytes(track->sector_size_code));
-    for (int phys_sec = 0; phys_sec < track->num_sectors; phys_sec++) {
-        show_sector(&track->sectors[phys_sec], out);
+            track.num_sectors,
+            sector_bytes(track.sector_size_code));
+    for (int phys_sec = 0; phys_sec < track.num_sectors; phys_sec++) {
+        show_sector(track.sectors[phys_sec], out);
     }
 }
 
-void show_track_data(const track_t* const track, FILE* const out) {
-    for (int phys_sec = 0; phys_sec < track->num_sectors; phys_sec++) {
-        const sector_t *sector = &track->sectors[phys_sec];
-        if (sector->status == SECTOR_MISSING) continue;
+void show_track_data(const track_t& track, FILE* const out) {
+    for (int phys_sec = 0; phys_sec < track.num_sectors; phys_sec++) {
+        const sector_t& sector = track.sectors[phys_sec];
+        if (sector.status == SECTOR_MISSING) continue;
 
-        const int data_len = sector_bytes(track->sector_size_code);
+        const int data_len = sector_bytes(track.sector_size_code);
         fprintf(out, "Physical C %d H %d S %d, Logical C %d H %d S %d",
-                track->phys_cyl, track->phys_head, phys_sec,
-                sector->log_cyl, sector->log_head, sector->log_sector);
-        if (sector->datas.size() > 1) {
-            fprintf(out, ": (unique read datas: %d)", sector->datas.size());
+                track.phys_cyl, track.phys_head, phys_sec,
+                sector.log_cyl, sector.log_head, sector.log_sector);
+        if (sector.datas.size() > 1) {
+            fprintf(out, ": (unique read datas: %d)", sector.datas.size());
         }
         fprintf(out, ":\n");
 
         size_t data_id = 0;
-        for (data_map_t::const_iterator iter = sector->datas.begin(); iter != sector->datas.end(); iter++) {
-            if ((sector->datas.size() > 1) || (iter->second > 1)) {
+        for (data_map_t::const_iterator iter = sector.datas.begin(); iter != sector.datas.end(); iter++) {
+            if ((sector.datas.size() > 1) || (iter->second > 1)) {
                 fprintf(out, "IMD data id: %zd. Repeat count: %d.\n", data_id++, iter->second);
             }
 
@@ -85,7 +85,7 @@ void show_track_data(const track_t* const track, FILE* const out) {
             // (Although it's not smart enough to fold identical data.)
             const int line_len = 16;
             for (int i = 0; i < data_len; i += line_len) {
-                fprintf(out, "%2d%2d%2d %04x ", sector->log_cyl, sector->log_head, sector->log_sector, i);
+                fprintf(out, "%2d%2d%2d %04x ", sector.log_cyl, sector.log_head, sector.log_sector, i);
 
                 for (int j = 0; j < line_len; j++) {
                     const int pos = i + j;
@@ -119,24 +119,24 @@ void show_track_data(const track_t* const track, FILE* const out) {
     }
 }
 
-void show_comment(const disk_t *disk, FILE *out) {
-    if (!disk->comment.empty()) {
-        fwrite(disk->comment.c_str(), 1, disk->comment.length(), out);
+void show_comment(const disk_t& disk, FILE *out) {
+    if (!disk.comment.empty()) {
+        fwrite(disk.comment.c_str(), 1, disk.comment.length(), out);
     }
 }
 
-void show_disk(const disk_t *disk, bool with_data, FILE *out) {
+void show_disk(const disk_t& disk, bool with_data, FILE *out) {
     show_comment(disk, out);
     fprintf(out, "\n");
-    for (int phys_cyl = 0; phys_cyl < disk->num_phys_cyls; phys_cyl++) {
-        for (int phys_head = 0; phys_head < disk->num_phys_heads; phys_head++) {
+    for (int phys_cyl = 0; phys_cyl < disk.num_phys_cyls; phys_cyl++) {
+        for (int phys_head = 0; phys_head < disk.num_phys_heads; phys_head++) {
             fprintf(out, "%2d.%d:", phys_cyl, phys_head);
-            show_track(&disk->tracks[phys_cyl][phys_head], out);
+            show_track(disk.tracks[phys_cyl][phys_head], out);
             fprintf(out, "\n");
 
             if (with_data) {
                 fprintf(out, "\n");
-                show_track_data(&disk->tracks[phys_cyl][phys_head], out);
+                show_track_data(disk.tracks[phys_cyl][phys_head], out);
             }
         }
     }

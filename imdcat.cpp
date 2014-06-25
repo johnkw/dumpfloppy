@@ -46,23 +46,23 @@ static struct args {
 } args;
 
 #define for_range(var, range) \
-    for(int var = (range)->start; var < (range)->end; var++)
+    for(int var = (range).start; var < (range).end; var++)
 
-static void update_range(int value, range *r) {
-    if (value < r->start) {
-        r->start = value;
+static void update_range(int value, range& r) {
+    if (value < r.start) {
+        r.start = value;
     }
-    if (value >= r->end) {
-        r->end = value + 1;
+    if (value >= r.end) {
+        r.end = value + 1;
     }
 }
 
-static void apply_range_option(const range *in, range *out) {
-    if (in->start != -1) {
-        out->start = in->start;
+static void apply_range_option(const range& in, range& out) {
+    if (in.start != -1) {
+        out.start = in.start;
     }
-    if (in->end != -1) {
-        out->end = in->end;
+    if (in.end != -1) {
+        out.end = in.end;
     }
 }
 
@@ -82,7 +82,7 @@ public:
     }
 };
 
-static void write_flat(const disk_t *disk, FILE *flat) {
+static void write_flat(const disk_t& disk, FILE *flat) {
     typedef std::map<SHC_t, data_t> disk_image_t;
     disk_image_t disk_image;
 
@@ -94,38 +94,38 @@ static void write_flat(const disk_t *disk, FILE *flat) {
 
     // Find the range of cylinders, heads and sectors to write.
     // For each real sector, add a lump.
-    for_range (phys_cyl, &args.in_cyls) {
-        for_range (phys_head, &args.in_heads) {
-            const track_t *track = &disk->tracks[phys_cyl][phys_head];
+    for_range (phys_cyl, args.in_cyls) {
+        for_range (phys_head, args.in_heads) {
+            const track_t& track = disk.tracks[phys_cyl][phys_head];
 
-            for (int phys_sec = 0; phys_sec < track->num_sectors; phys_sec++) {
-                const sector_t *sector = &track->sectors[phys_sec];
+            for (int phys_sec = 0; phys_sec < track.num_sectors; phys_sec++) {
+                const sector_t& sector = track.sectors[phys_sec];
 
                 // Use physical cyl and head, but logical sector.
                 // FIXME: Option to choose physical/logical values
                 int cyl = phys_cyl;
                 int head = phys_head;
-                int sec = sector->log_sector;
+                int sec = sector.log_sector;
 
                 if (sec < args.in_sectors.start || sec >= args.in_sectors.end) {
                     continue;
                 }
 
-                update_range(cyl, &out_cyls);
-                update_range(head, &out_heads);
-                update_range(sec, &out_sectors);
+                update_range(cyl, out_cyls);
+                update_range(head, out_heads);
+                update_range(sec, out_sectors);
 
                 // FIXME: Option to include/exclude bad/deleted sectors
-                if (sector->status == SECTOR_MISSING) continue;
+                if (sector.status == SECTOR_MISSING) continue;
 
                 SHC_t SHC(cyl, head, sec);
                 if (disk_image.find(SHC) != disk_image.end() && !args.permissive) {
                     die("Two sectors found for cylinder %d head %d sector %d", cyl, head, sec);
                 }
                 size_t data_id = 0;
-                if (sector->datas.size() != 1) {
+                if (sector.datas.size() != 1) {
                     // TODO: for the case of a SECTOR_GOOD status, use the good read automatically? Or maybe just prompt "y/n" to use it?
-                    fprintf(stderr, "Enter the 'IMD data id' to use for Logical C %d H %d S %d: ", sector->log_cyl, sector->log_head, sector->log_sector);
+                    fprintf(stderr, "Enter the 'IMD data id' to use for Logical C %d H %d S %d: ", sector.log_cyl, sector.log_head, sector.log_sector);
                     char buf[100];
                     for (;;) {
                         if (fgets(buf, sizeof(buf), stdin) == NULL) {
@@ -133,43 +133,43 @@ static void write_flat(const disk_t *disk, FILE *flat) {
                         }
                         fprintf(stderr, "Read %s\n", buf);
                         if (sscanf(buf, "%zd", &data_id) == 1) {
-                            if (data_id < sector->datas.size()) {
+                            if (data_id < sector.datas.size()) {
                                 break;
                             } else {
-                                fprintf(stderr, "Parsed invalid 'IMD data id': %zd. Must be less than %zd.\n: ", data_id, sector->datas.size());
+                                fprintf(stderr, "Parsed invalid 'IMD data id': %zd. Must be less than %zd.\n: ", data_id, sector.datas.size());
                             }
                         } else {
                             fprintf(stderr, "Error parsing 'IMD data id': (%d:%s)\n: ", errno, strerror(errno));
                         }
                     }
                 }
-                data_map_t::const_iterator iter = sector->datas.begin();
+                data_map_t::const_iterator iter = sector.datas.begin();
                 while (data_id--) { iter++; }
 
                 disk_image[SHC] = iter->first;
-                assert(disk_image[SHC].length() == sector_bytes(track->sector_size_code));
+                assert(disk_image[SHC].length() == sector_bytes(track.sector_size_code));
 
                 // Sanity check that all the sectors are the same size. TODO: Is it really a problem if some are different sizes?
                 if (size_code == -1) {
-                    size_code = track->sector_size_code;
-                } else if (track->sector_size_code != size_code) {
+                    size_code = track.sector_size_code;
+                } else if (track.sector_size_code != size_code) {
                     printf("Tracks have inconsistent sector sizes: %d != %d for %d,%d,%d,%d\n",
-                        track->sector_size_code, size_code, cyl, head, sec, track->num_sectors);
+                        track.sector_size_code, size_code, cyl, head, sec, track.num_sectors);
                 }
             }
         }
     }
     // Override output ranges as specified in options.
-    apply_range_option(&args.out_cyls, &out_cyls);
-    apply_range_option(&args.out_heads, &out_heads);
-    apply_range_option(&args.out_sectors, &out_sectors);
+    apply_range_option(args.out_cyls, out_cyls);
+    apply_range_option(args.out_heads, out_heads);
+    apply_range_option(args.out_sectors, out_sectors);
 
     data_t dummy_data(sector_bytes(size_code), 0xFF); // Data to write where we don't have a real sector.
 
     // Go through the disk_image, and write all sectors out.
-    for_range (cyl, &out_cyls) {
-        for_range (head, &out_heads) {
-            for_range (sec, &out_sectors) {
+    for_range (cyl, out_cyls) {
+        for_range (head, out_heads) {
+            for_range (sec, out_sectors) {
                 // For each sector that *should* exist, add a dummy lump.
                 disk_image_t::iterator sec_data_it = disk_image.find(SHC_t(cyl, head, sec));
                 fwrite(
@@ -208,7 +208,7 @@ static void usage(void) {
 
 // Parse a range argument in the form "10:20" -- which would be parsed as
 // (10, 21).
-static void parse_range(const char *in, range *out) {
+static void parse_range(const char *in, range& out) {
     int value;
     char *next;
     const char *in_end = in + strlen(in);
@@ -216,14 +216,14 @@ static void parse_range(const char *in, range *out) {
     value = strtoul(in, &next, 10);
     if (next != in) {
         // Found a first value.
-        out->start = value;
+        out.start = value;
     }
 
     if (*next != ':') {
         // No - found.
         if (next != in && next == in_end) {
             // Just a single number.
-            out->end = value + 1;
+            out.end = value + 1;
             return;
         } else {
             usage();
@@ -239,7 +239,7 @@ static void parse_range(const char *in, range *out) {
     if (next != in_end) {
         usage();
     }
-    out->end = value + 1;
+    out.end = value + 1;
 }
 
 int main(int argc, char **argv) {
@@ -280,22 +280,22 @@ int main(int argc, char **argv) {
             args.permissive = true;
             break;
         case 'c':
-            parse_range(optarg, &args.in_cyls);
+            parse_range(optarg, args.in_cyls);
             break;
         case 'h':
-            parse_range(optarg, &args.in_heads);
+            parse_range(optarg, args.in_heads);
             break;
         case 's':
-            parse_range(optarg, &args.in_sectors);
+            parse_range(optarg, args.in_sectors);
             break;
         case 'C':
-            parse_range(optarg, &args.out_cyls);
+            parse_range(optarg, args.out_cyls);
             break;
         case 'H':
-            parse_range(optarg, &args.out_heads);
+            parse_range(optarg, args.out_heads);
             break;
         case 'S':
-            parse_range(optarg, &args.out_sectors);
+            parse_range(optarg, args.out_sectors);
             break;
 
         default:
@@ -323,16 +323,16 @@ int main(int argc, char **argv) {
     fclose(f);
 
     if (args.show_comment && !args.verbose) {
-        show_comment(&disk, stdout);
+        show_comment(disk, stdout);
     }
 
     if (args.verbose) {
-        show_disk(&disk, args.show_data, stdout);
+        show_disk(disk, args.show_data, stdout);
     }
 
     if (args.flat_filename != NULL) {
         f = fopen(args.flat_filename, "wb");
-        write_flat(&disk, f);
+        write_flat(disk, f);
         fclose(f);
     }
 

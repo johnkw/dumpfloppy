@@ -24,11 +24,11 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-void show_mode(const data_mode_t *mode, FILE *out);
-void show_sector(const sector_t *sector, FILE *out);
-void show_track(const track_t *track, FILE *out);
-void show_track_data(const track_t *track, FILE *out);
-void show_comment(const disk_t *disk, FILE *out);
-void show_disk(const disk_t *disk, bool with_data, FILE *out);
+void show_mode(const data_mode_t& mode, FILE *out);
+void show_sector(const sector_t& sector, FILE *out);
+void show_track(const track_t& track, FILE *out);
+void show_track_data(const track_t& track, FILE *out);
+void show_comment(const disk_t& disk, FILE *out);
+void show_disk(const disk_t& disk, const bool with_data, FILE *out);
 
 #endif
