@@ -625,6 +625,8 @@ static void process_floppy(void) {
 
                 if (track->status == TRACK_GUESSED) {
                     // Maybe we guessed wrong. Probe and try again.
+                    assert(try_num == 0);
+                    try_num = -1; // Ensure at least one "retry" (sort of a first real try in a way).
                     init_track(cyl, head, track);
                 }
             }
