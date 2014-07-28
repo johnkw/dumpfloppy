@@ -122,17 +122,33 @@ static void write_flat(const disk_t& disk, FILE *flat) {
                 if (disk_image.find(SHC) != disk_image.end() && !args.permissive) {
                     die("Two sectors found for cylinder %d head %d sector %d", cyl, head, sec);
                 }
+
                 size_t data_id = 0;
                 if (sector.datas.size() != 1) {
-                    // TODO: for the case of a SECTOR_GOOD status, use the good read automatically? Or maybe just prompt "y/n" to use it?
-                    fprintf(stderr, "Enter the 'IMD data id' to use for Logical C %d H %d S %d: ", sector.log_cyl, sector.log_head, sector.log_sector);
+                    // Find the highest read count for the default option.
+                    int i = 0;
+                    data_map_t::const_iterator default_iter = sector.datas.begin();
+                    for (data_map_t::const_iterator iter = sector.datas.begin(); iter != sector.datas.end(); iter++) {
+                        if (iter->second > default_iter->second) {
+                            default_iter = iter;
+                            data_id = i;
+                        }
+                        i++;
+                    }
+                    fprintf(stderr, "Enter the 'IMD data id' to use for Logical C %d H %d S %d: [default: %d, count: %d]: ",
+                        sector.log_cyl, sector.log_head, sector.log_sector,
+                        data_id, default_iter->second
+                    );
                     char buf[100];
                     for (;;) {
                         if (fgets(buf, sizeof(buf), stdin) == NULL) {
                             die_errno("Error reading stdin");
                         }
-                        fprintf(stderr, "Read %s\n", buf);
-                        if (sscanf(buf, "%zd", &data_id) == 1) {
+                        //fprintf(stderr, "Read %s\n", buf);
+                        if (strcmp(buf, "\n") == 0) {
+                            fprintf(stderr, "Using default ID of %d\n", data_id);
+                            break;
+                        } else if (sscanf(buf, "%zd", &data_id) == 1) {
                             if (data_id < sector.datas.size()) {
                                 break;
                             } else {
