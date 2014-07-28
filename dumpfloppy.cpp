@@ -508,7 +508,7 @@ static void probe_disk(disk_t& disk) {
     }
 }
 
-static void process_floppy(void) {
+static int process_floppy(void) {
     bool retrying = false;
     disk_t disk;
     assert(args.image_filename != NULL);
@@ -642,8 +642,8 @@ static void process_floppy(void) {
     fclose(image);
     close(dev_fd);
 
+    long secstat[SECTOR_ENUM_HIGHEST+1] = {0};
     {
-        long secstat[SECTOR_ENUM_HIGHEST+1] = {0};
         for (int phys_cyl = 0; phys_cyl < disk.num_phys_cyls; phys_cyl++) {
             for (int phys_head = 0; phys_head < disk.num_phys_heads; phys_head++) {
                 for (int phys_sec = 0; phys_sec < disk.tracks[phys_cyl][phys_head].num_sectors; phys_sec++) {
@@ -657,6 +657,8 @@ static void process_floppy(void) {
     if (rename(filename_in_progress.c_str(), args.image_filename) != 0) {
         die_errno("rename \"%s\" to \"%s\" failed", filename_in_progress.c_str(), args.image_filename);
     }
+
+    return secstat[SECTOR_BAD] ? 1 : 0;
 }
 
 static void usage(void) {
@@ -724,7 +726,5 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    process_floppy();
-
-    return 0;
+    return process_floppy();
 }
