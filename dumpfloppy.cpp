@@ -211,9 +211,11 @@ static bool track_readid(track_t& track) {
         //printf("Got new sector_size_code %d\n", cmd.reply[6]);
         track.sector_size_code = cmd.reply[6];
     } else if (track.sector_size_code != cmd.reply[6]) {
-        // FIXME: handle this better -- e.g. discard all but first?
-        // or keep them and write multiple .IMDs?
-        die("mixed sector formats within track %d != %d", track.sector_size_code, cmd.reply[6]);
+        // Apparently this can legitimately occur on original floppies that have incorporated bizarre copy-protection. The game "QIX" does this, for example.
+        // There appears to be no way to convey this sort of track/sector mismatch information to the virtual machine (ie, VMWare) that you would play the disk image on.
+        // We could store the track size in the sector_t, but sadly nothing would be able to make use of that information it seems.
+        fprintf(stderr, "mixed sector formats within track %d != %d\n", track.sector_size_code, cmd.reply[6]);
+        return false; // This sector will be flagged SECTOR_MISSING, and dumpfloppy will ultimately return non-zero on the command line.
     }
 
     track.num_sectors++;
@@ -658,7 +660,7 @@ static int process_floppy(void) {
         die_errno("rename \"%s\" to \"%s\" failed", filename_in_progress.c_str(), args.image_filename);
     }
 
-    return secstat[SECTOR_BAD] ? 1 : 0;
+    return (secstat[SECTOR_BAD] || secstat[SECTOR_MISSING]) ? 1 : 0;
 }
 
 static void usage(void) {
