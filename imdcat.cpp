@@ -91,6 +91,7 @@ static void write_flat(const disk_t& disk, FILE *flat) {
     range out_heads = {MAX_HEADS, 0};
     range out_sectors = {MAX_SECS, 0};
     int size_code = -1;
+    bool did_bell = false;
 
     // Find the range of cylinders, heads and sectors to write.
     // For each real sector, add a lump.
@@ -135,6 +136,10 @@ static void write_flat(const disk_t& disk, FILE *flat) {
                         }
                         i++;
                     }
+                    if (!did_bell) {
+                        fprintf(stderr, "\x07");
+                        did_bell = true;
+                    }
                     fprintf(stderr, "Enter the 'IMD data id' to use for Logical C %d H %d S %d: [default: %d, count: %d]: ",
                         sector.log_cyl, sector.log_head, sector.log_sector,
                         data_id, default_iter->second
@@ -169,7 +174,7 @@ static void write_flat(const disk_t& disk, FILE *flat) {
                 if (size_code == -1) {
                     size_code = track.sector_size_code;
                 } else if (track.sector_size_code != size_code) {
-                    printf("Tracks have inconsistent sector sizes: %d != %d for %d,%d,%d,%d\n",
+                    printf("Tracks have inconsistent sector sizes: %d != %d for %d,%d,%d (total sectors per track: %d)\n",
                         track.sector_size_code, size_code, cyl, head, sec, track.num_sectors);
                 }
             }
