@@ -78,7 +78,7 @@ public:
         if (this->head < rhs.head) return true;
         if (this->head > rhs.head) return false;
         if (this->sec  < rhs.sec)  return true;
-                                   return false;
+        return false;
     }
 };
 
@@ -140,7 +140,7 @@ static void write_flat(const disk_t& disk, FILE *flat) {
                         fprintf(stderr, "\x07");
                         did_bell = true;
                     }
-                    fprintf(stderr, "Enter the 'IMD data id' to use for Logical C %d H %d S %d: [default: %d, count: %d]: ",
+                    fprintf(stderr, "Enter the 'IMD data id' to use for Logical C %d H %d S %d: [default: %ld, count: %d]: ",
                         sector.log_cyl, sector.log_head, sector.log_sector,
                         data_id, default_iter->second
                     );
@@ -151,7 +151,7 @@ static void write_flat(const disk_t& disk, FILE *flat) {
                         }
                         //fprintf(stderr, "Read %s\n", buf);
                         if (strcmp(buf, "\n") == 0) {
-                            fprintf(stderr, "Using default ID of %d\n", data_id);
+                            fprintf(stderr, "Using default ID of %ld\n", data_id);
                             break;
                         } else if (sscanf(buf, "%zd", &data_id) == 1) {
                             if (data_id < sector.datas.size()) {

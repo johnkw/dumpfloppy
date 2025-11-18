@@ -326,7 +326,7 @@ static bool probe_track(track_t& track) {
     track.num_sectors = end_pos;
 
     // Show what we found.
-    printf(" %s %dx%d:",
+    printf(" %s %dx%ld:",
            track.data_mode->name,
            track.num_sectors, sector_bytes(track.sector_size_code));
     for (int i = 0; i < track.num_sectors; i++) {

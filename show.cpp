@@ -53,7 +53,7 @@ void show_sector(const sector_t& sector, FILE *out) {
 
 void show_track(const track_t& track, FILE *out) {
     show_mode(track.data_mode, out);
-    fprintf(out, " %dx%d",
+    fprintf(out, " %dx%ld",
             track.num_sectors,
             sector_bytes(track.sector_size_code));
     for (int phys_sec = 0; phys_sec < track.num_sectors; phys_sec++) {
@@ -71,7 +71,7 @@ void show_track_data(const track_t& track, FILE* const out) {
                 track.phys_cyl, track.phys_head, phys_sec,
                 sector.log_cyl, sector.log_head, sector.log_sector);
         if (sector.datas.size() > 1) {
-            fprintf(out, ": (unique read datas: %d)", sector.datas.size());
+            fprintf(out, ": (unique read datas: %ld)", sector.datas.size());
         }
         fprintf(out, ":\n");
 
